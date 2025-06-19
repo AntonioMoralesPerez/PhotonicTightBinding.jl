@@ -1,4 +1,4 @@
-module TETB
+module PhotonicTightBinding
 
 # --- Dependencies ----------------------------------------------------------------------- #
 

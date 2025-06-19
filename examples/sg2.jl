@@ -3,7 +3,7 @@ Pkg.activate(@__DIR__)
 
 # necessary packages
 using Crystalline
-using TETB
+using PhotonicTightBinding
 
 sgnum = 2
 brs = calc_bandreps(sgnum)

@@ -2,9 +2,9 @@ using Pkg
 Pkg.activate(@__DIR__)
 
 ### necessary packages
-using TETB
+using PhotonicTightBinding
 using Crystalline
-using TETB.PythonCall: pylist, pyconvert
+using PhotonicTightBinding.PythonCall: pylist, pyconvert
 using Brillouin
 
 ### construct the structure under study

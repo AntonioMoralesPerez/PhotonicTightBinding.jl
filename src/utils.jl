@@ -196,7 +196,8 @@ end
                       idxsᴸs::Vector{Vector{Int}}, 
                       brs::Collection{NewBandRep{D}}) -> Vector{TightBindingCandidateSet}
 
-Obtains a possible TETB model `nᵀ⁺ᴸ` for the auxiliary modes provided `idxsᴸs`.
+Obtains a possible PhotonicTightBinding model `nᵀ⁺ᴸ` for the auxiliary modes provided
+`idxsᴸs`.
     
 It checks its **physicality** by ensuring that the solution subduces properly the O(3) 
 representation at Γ and zero frequency and that the higher frequency irreps present in `m` 

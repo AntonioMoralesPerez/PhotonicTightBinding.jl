@@ -1,4 +1,4 @@
-using TETB, Test
+using PhotonicTightBinding, Test
 using Crystalline
 
 @testset "EBR decomposition" begin

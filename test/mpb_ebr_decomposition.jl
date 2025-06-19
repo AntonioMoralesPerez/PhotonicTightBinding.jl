@@ -1,4 +1,4 @@
-using TETB, Test
+using PhotonicTightBinding, Test
 using Crystalline # for calc_bandreps
 
 @testset "EBR decomposition" begin

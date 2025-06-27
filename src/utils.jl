@@ -2,44 +2,35 @@ using Crystalline: translation
 using SymmetricTightBinding: ReciprocalPointLike
 
 """
-    obtain_symmetry_vectors(ms::Py, sgnum::Int, Val{D}=Val(3); polarization) --> Vector{SymmetryVector{D}}
+    obtain_symmetry_vectors(
+        ms::Py, 
+        brs::Collection{NewBandRep{D}};
+        polarization = nothing
+    )
+    obtain_symmetry_vectors(
+        ms::Py, 
+        sgnum::Int,
+        Val{D} = Val(3);
+        kws...
+    )
+    --> Vector{SymmetryVector{D}}
 
-Obtains directly the symmetry vector for the bands computed in the MPB model `ms` for the space
-group defined in `sgnum`. It fixes up the symmetry content at Γ and ω=0 and returns the symmetry
-vectors and topologies of the bands.
+Return the compatible symmetry vectors for the bands computed by an MPB `ModeSolver` object
+`ms`, provided as a `Py` object. The band representations necessary to perform the group
+theoretic calculation, can be provided directly as `brs` or indirectly by space group number
+and dimension `sgnum` and `D`.
+The symmetry content at Γ and ω=0 is automatically corrected.
 """
 function obtain_symmetry_vectors(
     ms::Py,
     brs::Collection{NewBandRep{D}};
     polarization::Union{Nothing, Symbol, Integer} = nothing,
-    verbose::Bool = false,
 ) where {D}
-    # TODO: maybe move this to MPBUtils.jl?
     lgirsv = irreps(brs) # small irreps & little groups assoc. w/ `brs`
 
     # symmetry eigenvalues ⟨Eₙₖ|gᵢDₙₖ⟩
-    symeigsv = Vector{Vector{Vector{ComplexF64}}}(undef, length(lgirsv))
-    for (kidx, lgirs) in enumerate(lgirsv)
-        lg = group(lgirs)
-        kv = mp.Vector3(position(lg)()...)
-        redirect_stdout(verbose ? stdout : devnull) do
-            ms.solve_kpoint(kv)
-        end
-
-        symeigsv[kidx] =
-            [Vector{ComplexF64}(undef, length(lg)) for n in 1:pyconvert(Int, ms.num_bands)]
-        for (i, gᵢ) in enumerate(lg)
-            W = mp.Matrix(eachcol(rotation(gᵢ))..., [0, 0, 1]) # decompose gᵢ = {W|w}
-            w = mp.Vector3(translation(gᵢ)...)
-            symeigs = ms.compute_symmetries(W, w) # compute ⟨Eₙₖ|gᵢDₙₖ⟩ for all bands
-            symeigs = pyconvert(Vector{ComplexF64}, symeigs) # convert from Py to Julia type
-            setindex!.(symeigsv[kidx], symeigs, i) # update container of sym. eigenvalues
-        end
-    end
-
-    # --- fix singular photonic symmetry content at Γ, ω=0 ---
     D == 2 && (polarization = _check_and_canonicalize_2d_polarization_arg(polarization))
-    fixup_gamma_symmetry!(symeigsv, lgirsv, polarization)
+    symeigsv = compute_symmetry_eigenvalues(ms, lgirsv, polarization)
 
     # --- obtain compatibility-respecting symmetry vectors assoc. w/ symmetry data ---
     ns = collect_compatible(symeigsv, brs)
@@ -67,11 +58,6 @@ function _check_and_canonicalize_2d_polarization_arg(polarization)
               or `<:Integer`)")
     end
 end
-
-#= 
-`t` -> dimension os the auxiliary modes to search
-`brs` -> collection of the BRs of the SG
-=#
 
 """
     find_auxiliary_modes(μᴸ::Int, brs::Collection{<:NewBandRep}) -> Vector{Vector{Int}}

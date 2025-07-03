@@ -280,7 +280,7 @@ function find_bandrep_decompositions(
 
         !isempty(apolar) || error("Check the symmetry vector and space group used")
 
-        return TightBindingCandidateSet(longitudinal, apolar, [Float64[]])
+        return TightBindingCandidateSet(longitudinal, apolar, [Int64[]])
 
     else
         μᴸ = μᴸ_min - 1

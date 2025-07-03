@@ -4,35 +4,21 @@ module PhotonicTightBinding
 
 using Crystalline
 using MPBUtils
-# TODO: ↓ probably unnecessary dependency
-using PhotonicBandConnectivity
+using PhotonicBandConnectivity # TODO: ← maybe unnecessary dependency?
 using Crystalline: AbstractSymmetryVector, irdim, CompositeBandRep_from_indices, translation
 using Crystalline: reduce_translation_to_unitrange, constant, free, isapproxin, orbit
-using PythonCall: pynew, pycopy!, pyimport, Py, pyconvert
+using PythonCall: Py
 using Reexport
 @reexport using SymmetricTightBinding
 using Optim # for the fitting of the photonic bands
 
 # --- Constants -------------------------------------------------------------------------- #
 
-const LOSS_PENALTY_WEIGHT = 0.1 # for controlling the penalty for extra bands in the loss function
+const DEFAULT_LONGITUDINAL_WEIGHT = 0.1 # for controlling the penalty for extra bands in the loss function
 
-# --- PythonCall init -------------------------------------------------------------------- #
+# --- Export meep and mpb ---------------------------------------------------------------- #
 
-using PythonCall
-
-const mp = pynew()
-const mpb = pynew()
-function __init__()
-    try # import the mp and mpb libraries
-        pycopy!(mp, pyimport("meep"))
-        pycopy!(mpb, pyimport("meep.mpb"))
-    catch
-        @warn "mpb or meep could not be imported: associated functionality is nonfunctional"
-    end
-end
-
-export mp, mpb
+export mp, mpb # loaded from MPBUtils
 
 # --- Code loading ----------------------------------------------------------------------- #
 

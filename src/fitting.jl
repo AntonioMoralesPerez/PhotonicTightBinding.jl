@@ -19,7 +19,7 @@ function fg!(F, G, cs, tbm::TightBindingModel, Em_r, ks, μᴸ; λ = 1)
         # MSE loss
         if !isnothing(F)
             F += sum(abs2 ∘ splat(-), zip(Es_r, Esᵀ); init = zero(F)) # regular loss
-            F += λ * sum(E -> max(zero(E), E)^2, Esᴸ)             # longitudinal loss
+            F += λ * sum(E -> max(zero(E), E)^2, Esᴸ; init = zero(F)) # longitudinal loss
         end
 
         # gradient of MSE loss

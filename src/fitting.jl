@@ -1,4 +1,3 @@
-
 using SymmetricTightBinding
 using Optim
 using LinearAlgebra: eigen!, Hermitian
@@ -19,7 +18,7 @@ function fg!(F, G, cs, tbm::TightBindingModel, Em_r, ks, μᴸ; λ = 1)
         Esᵀ = @view Es[μᴸ+1:end] # regular, transverse bands
         # MSE loss
         if !isnothing(F)
-            F += sum(abs2∘splat(-), zip(Es_r, Esᵀ); init=zero(F)) # regular loss
+            F += sum(abs2 ∘ splat(-), zip(Es_r, Esᵀ); init = zero(F)) # regular loss
             F += λ * sum(E -> max(zero(E), E)^2, Esᴸ)             # longitudinal loss
         end
 
@@ -89,10 +88,7 @@ function photonic_fit(
     max_multistarts::Integer = 100,
     verbose::Bool = false,
     loss_penalty_weight::Real = LOSS_PENALTY_WEIGHT,
-    options::Optim.Options = Optim.Options(;
-        g_abstol = 1e-2,
-        f_reltol = 1e-5,
-        ),
+    options::Optim.Options = Optim.Options(; g_abstol = 1e-2, f_reltol = 1e-5),
     polish::Bool = true,
 ) where D
     # convert frequencies to energies and sort them
@@ -118,7 +114,7 @@ function photonic_fit(
         verbose && print("   trial #$t")
         o = optimize(Optim.only_fg!(_fg!), init_cs, optimizer, options)
         accept = o.minimum < best_loss
-        
+
         if verbose
             mean_err = round(sqrt(o.minimum / (n_fit * length(ks))); sigdigits = 3)
             printstyled(" (mean err ", mean_err, ")"; color = :light_black)
@@ -132,7 +128,11 @@ function photonic_fit(
             since_last_improvement = 0
             if best_loss ≤ tol
                 if verbose
-                    printstyled("   tolerance met: returning\n"; color = :green, bold = true)
+                    printstyled(
+                        "   tolerance met: returning\n";
+                        color = :green,
+                        bold = true,
+                    )
                 end
                 break
             end
@@ -140,7 +140,7 @@ function photonic_fit(
 
         # a simple basin-hopping exploration strategy
         since_last_improvement += 1
-        step_scale = since_last_improvement.^(1/4) * 0.5 / length(tbm)
+        step_scale = since_last_improvement .^ (1 / 4) * 0.5 / length(tbm)
         init_cs = best_cs .+ step_scale .* randn(length(tbm)) .* abs.(best_cs)
     end
     if verbose && best_loss > tol
@@ -158,11 +158,12 @@ function photonic_fit(
         if verbose
             printstyled(
                 "(mean error ",
-                round(sqrt(o.minimum / (n_fit * length(ks))); sigdigits = 3), ")\n";
-                color = :green
+                round(sqrt(o.minimum / (n_fit * length(ks))); sigdigits = 3),
+                ")\n";
+                color = :green,
             )
         end
     end
-        
+
     return tbm(best_cs)
 end

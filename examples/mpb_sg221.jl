@@ -64,7 +64,7 @@ cbrᴸ = candidatesv[1].longitudinal
 μᴸ = occupation(cbrᴸ)
 μᵀ = occupation(cbr) - μᴸ
 
-ptbm_fit = photonic_fit(tbm, freqs[:, 1:μᵀ], kvs; verbose = true)
+ptbm_fit = photonic_fit(tbm, freqs, kvs; verbose = true)
 freqs_fit = spectrum(ptbm_fit, kvs; transform = energy2frequency)[:, μᴸ+1:end]
 
 # ---------------------------------------------------------------------------------------- #

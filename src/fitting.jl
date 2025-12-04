@@ -5,7 +5,10 @@ using LinearAlgebra: eigen!, Hermitian
 # ---------------------------------------------------------------------------------------- #
 # Define loss as sum of absolute squared error (MSE, up to scaling)
 
-function fg!(F, G, cs, tbm::TightBindingModel, Em_r, ks, μᴸ; λ = 1)
+function fg!(
+    F, G, cs, tbm::TightBindingModel, Em_r, ks, μᴸ;
+    λ = 1, lasso::Union{Nothing,Real} = nothing
+)
     ptbm = tbm(cs)
     if !isnothing(G)
         fill!(G, zero(eltype(G)))
@@ -16,13 +19,17 @@ function fg!(F, G, cs, tbm::TightBindingModel, Em_r, ks, μᴸ; λ = 1)
         Es, us = eigen!(H) # no Bloch phases, deliberately
         Esᴸ = @view Es[1:μᴸ]     # longitudinal bands
         Esᵀ = @view Es[μᴸ+1:end] # regular, transverse bands
-        # MSE loss
+
+        # MSE loss (possibly with lasso penalty)
         if !isnothing(F)
-            F += sum(abs2 ∘ splat(-), zip(Es_r, Esᵀ); init = zero(F)) # regular loss
-            F += λ * sum(E -> max(zero(E), E)^2, Esᴸ; init = zero(F)) # longitudinal loss
+            F += sum(abs2∘splat(-), zip(Es_r, Esᵀ); init=zero(F)) # regular loss
+            F += λ * sum(E -> max(zero(E), E)^2, Esᴸ)             # longitudinal loss
+            if !isnothing(lasso)
+                F += lasso * sum(abs, cs)
+            end
         end
 
-        # gradient of MSE loss
+        # gradient of loss
         if !isnothing(G)
             ∇Es = energy_gradient_wrt_hopping(ptbm, k, (Es, us))
             ∇Esᴸ = @view ∇Es[1:μᴸ]
@@ -35,6 +42,9 @@ function fg!(F, G, cs, tbm::TightBindingModel, Em_r, ks, μᴸ; λ = 1)
                 if E > 0
                     G .+= (2λ * E) .* ∇E
                 end
+            end
+            if !isnothing(lasso)
+                G .+= lasso .* sign.(cs)             # lasso penalty
             end
         end
     end
@@ -71,7 +81,12 @@ The global search returns early if the mean fit error, per band and per frequenc
 - `polish` (default, `true`): whether to polish off the multi-start optimization with a
   final local optimization step using default Optim.jl options. This is useful to ensure
   that the best candidate from the multi-start search is fully converged.
-
+- `longitudinal_weight` (default, `$DEFAULT_LONGITUDINAL_WEIGHT`): a weighting factor used
+  to scale the loss term from longitudinal bands. Increase to promote longitudinal bands
+  having imaginary frequencies (i.e., negative energies).
+- `lasso` (defalt, `nothing`): if set to a positive number, applies a LASSO penalty to the
+  hopping amplitudes, encouraging model sparsity (i.e., small hopping amplitudes to
+  vanish). Setting to `nothing` disables the LASSO penalty.
 
 ## Notes
 The frequencies are provided by the user but the energies are used internally to do the fitting.
@@ -87,8 +102,13 @@ function photonic_fit(
     atol::Real = 1e-3, # minimum threshold error, per k-point & per band, averaged over both
     max_multistarts::Integer = 100,
     verbose::Bool = false,
-    loss_penalty_weight::Real = LOSS_PENALTY_WEIGHT,
-    options::Optim.Options = Optim.Options(; g_abstol = 1e-2, f_reltol = 1e-5),
+    longitudinal_weight::Real = DEFAULT_LONGITUDINAL_WEIGHT,
+    lasso :: Union{Nothing,Real} = nothing,
+    options::Optim.Options = Optim.Options(;
+        g_abstol = 5e-3,
+        f_reltol = 1e-5,
+        ),
+    init::Union{Nothing, Vector{Float64}} = nothing,
     polish::Bool = true,
 ) where D
     # convert frequencies to energies and sort them
@@ -97,8 +117,8 @@ function photonic_fit(
 
     μᴸ = tbm.N - size(Em_r, 2) # number of longitudinal bands
     # let-block-capture-trick to make absolutely sure we have no closure boxing issues
-    _fg! = let tbm = tbm, Em_r = Em_r, ks = ks, μᴸ = μᴸ, λ = loss_penalty_weight
-        (F, G, cs) -> fg!(F, G, cs, tbm, Em_r, ks, μᴸ; λ)
+    _fg! = let tbm = tbm, Em_r = Em_r, ks = ks, μᴸ = μᴸ, λ = longitudinal_weight, lasso = lasso
+        (F, G, cs) -> fg!(F, G, cs, tbm, Em_r, ks, μᴸ; λ, lasso)
     end
 
     # multi-start optimization
@@ -107,16 +127,19 @@ function photonic_fit(
     best_cs = Vector{Float64}(undef, length(tbm))
     best_loss = Inf
     init_hopping_scale = sum(Em_r) / length(Em_r) * 0.25
-    init_cs = randn(length(tbm)) .* init_hopping_scale
+    init_cs = isnothing(init) ? randn(length(tbm)) .* init_hopping_scale : init
     since_last_improvement = 0
     verbose && println("Starting multi-start optimization with $max_multistarts trials:")
     for t in 1:max_multistarts
         verbose && print("   trial #$t")
         o = optimize(Optim.only_fg!(_fg!), init_cs, optimizer, options)
-        accept = o.minimum < best_loss
-
+        accept = o.minimum * 1.005 < best_loss # be at least 0.5% better
         if verbose
-            mean_err = round(sqrt(o.minimum / (n_fit * length(ks))); sigdigits = 3)
+            mse_loss = o.minimum
+            if !isnothing(lasso)
+                mse_loss -= lasso * sum(abs, o.minimizer)
+            end
+            mean_err = round(sqrt(mse_loss / (n_fit * length(ks))); sigdigits = 3)
             printstyled(" (mean err ", mean_err, ")"; color = :light_black)
             accept && printstyled(" → new best"; color = :green)
             println()
@@ -140,7 +163,7 @@ function photonic_fit(
 
         # a simple basin-hopping exploration strategy
         since_last_improvement += 1
-        step_scale = since_last_improvement .^ (1 / 4) * 0.5 / length(tbm)
+        step_scale = since_last_improvement.^(1/4) * 0.5 # TODO: improve this? - very adhoc
         init_cs = best_cs .+ step_scale .* randn(length(tbm)) .* abs.(best_cs)
     end
     if verbose && best_loss > tol

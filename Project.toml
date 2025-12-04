@@ -23,7 +23,7 @@ SymmetryBases = {rev = "master", url = "https://github.com/thchr/SymmetryBases.j
 [compat]
 Crystalline = "0.6.18"
 LinearAlgebra = "1.11.0"
-MPBUtils = "0.2"
+MPBUtils = "0.2.2"
 Optim = "1.12.0"
 PhotonicBandConnectivity = "0.5"
 PythonCall = "0.9.24"

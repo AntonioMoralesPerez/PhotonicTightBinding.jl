@@ -3,18 +3,30 @@ using SymmetricTightBinding: ReciprocalPointLike
 using MPBUtils
 
 """
-    obtain_symmetry_vectors(ms::Py, sgnum::Int, Val{D}=Val(3); polarization) --> Vector{SymmetryVector{D}}
+    obtain_symmetry_vectors(
+        ms::Py, 
+        brs::Collection{NewBandRep{D}};
+        polarization = nothing
+    )
+    obtain_symmetry_vectors(
+        ms::Py, 
+        sgnum::Int,
+        Val{D} = Val(3);
+        kws...
+    )
+    --> Vector{SymmetryVector{D}}
 
-Obtains directly the symmetry vector for the bands computed in the MPB model `ms` for the space
-group defined in `sgnum`. It fixes up the symmetry content at Γ and ω=0 and returns the symmetry
-vectors and topologies of the bands.
+Return the compatible symmetry vectors for the bands computed by an MPB `ModeSolver` object
+`ms`, provided as a `Py` object. The band representations necessary to perform the group
+theoretic calculation, can be provided directly as `brs` or indirectly by space group number
+and dimension `sgnum` and `D`.
+The symmetry content at Γ and ω=0 is automatically corrected.
 """
 function obtain_symmetry_vectors(
     ms::Py,
     brs::Collection{NewBandRep{D}};
     polarization::Union{Nothing, Symbol, Integer} = nothing,
 ) where {D}
-    # TODO: maybe move this to MPBUtils.jl?
     lgirsv = irreps(brs) # small irreps & little groups assoc. w/ `brs`
 
     # --- compute band symmetry data ---
@@ -53,11 +65,6 @@ function _check_and_canonicalize_2d_polarization_arg(polarization)
               or `<:Integer`)")
     end
 end
-
-#= 
-`t` -> dimension os the auxiliary modes to search
-`brs` -> collection of the BRs of the SG
-=#
 
 """
     find_auxiliary_modes(μᴸ::Int, brs::Collection{<:NewBandRep}) -> Vector{Vector{Int}}

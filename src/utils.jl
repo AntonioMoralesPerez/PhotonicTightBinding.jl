@@ -239,6 +239,13 @@ function find_apolar_modes(
 end
 
 """
+    find_bandrep_decompositions(m::AbstractSymmetryVector{D},
+                                brs::Collection{NewBandRep{D}};
+                                μᴸ_min::Integer = 0,
+                                μᵀ_max::Integer = μᴸ_min + 2 * occupation(m),
+                                connected_to_zero_frequency::Bool = true,
+                                ) where {D})
+
 Obtain a bandrep decomposition for the symmetry vector of the bands provided `m` with a minimal
 number of auxiliary bands in the interval `[μᴸ_min,μᴸ_max]`.
 

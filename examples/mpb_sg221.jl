@@ -11,13 +11,13 @@ using GLMakie # for plotting
 # construct the structure under study
 
 # this example consist of a set of cilinders in the x,y,z directions. This structure has a 
-# set of symmetries that correspond to the space group 221 (P4/mmm).
+# set of symmetries that correspond to the space group 221 (Pm-3m).
 
 sgnum, D = 221, 3 # space group number and dimension
 Rs = directbasis(sgnum, Val(3))
 
 R1 = 0.2 #cylinder radius
-N_BANDS = 5 # number of bands to compute
+N_BANDS = 6 # number of bands to compute
 mat = mp.Medium(; epsilon = 12)
 geometry = map([[0, 0, 1], [0, 1, 0], [1, 0, 0]]) do axis
     mp.Cylinder(; radius = R1, center = [0, 0, 0], axis = axis, height = 1, material = mat)

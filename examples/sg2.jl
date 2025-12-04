@@ -9,8 +9,8 @@ sgnum = 2
 brs = calc_bandreps(sgnum)
 lgirsv = irreps(brs)
 
-# ----------------------------------------------------------------------------------------#
-# First minimal solutions in SG #2
+# ---------------------------------------------------------------------------------------- #
+# First minimal solutions in SG No 2
 
 s1 = "[-Γ₁⁺+3Γ₁⁻,2R₁⁻, 2T₁⁻, 2U₁⁻, V₁⁺+V₁⁻, X₁⁺+X₁⁻,Y₁⁺+Y₁⁻,2Z₁⁺]"
 m1 = parse(SymmetryVector, s1, lgirsv)
@@ -27,10 +27,7 @@ m4 = parse(SymmetryVector, s4, lgirsv)
 s5 = "[-Γ₁⁺+3Γ₁⁻, 2R₁⁻, T₁⁺ + T₁⁻, 2 U₁⁻, 2 V₁⁺, 2X₁⁻, Y₁⁺+Y₁⁻, Z₁⁺+Z₁⁻]"
 m5 = parse(SymmetryVector, s5, lgirsv)
 
-# ----------------------------------------------------------------------------------------#
-
-μᴸ = 1
-idxsᴸs = find_auxiliary_modes(μᴸ, brs)
+# ---------------------------------------------------------------------------------------- #
 
 # compute all possible decomposition into EBRs of m using the additional modes computed
-candidatesv = find_apolar_modes(m5, idxsᴸs, brs)
+candidatesv = find_bandrep_decompositions(m4, brs; μᴸ_min = 2)

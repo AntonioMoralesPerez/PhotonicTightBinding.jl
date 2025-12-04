@@ -44,7 +44,7 @@ function obtain_symmetry_vectors(
     # --- obtain compatibility-respecting symmetry vectors assoc. w/ symmetry data ---
     ns = collect_compatible(symeigsv, brs)
 
-    return ns
+    return ns, symeigsv
 end
 function obtain_symmetry_vectors(ms::Py, sgnum::Int, Dᵛ::Val{D} = Val(3); kws...) where {D}
     brs = primitivize(calc_bandreps(sgnum, Dᵛ)) # elementary band representations

@@ -3,9 +3,9 @@ Pkg.activate(@__DIR__)
 
 ### necessary packages
 using PhotonicTightBinding
-using Crystalline
-using PhotonicTightBinding.PythonCall: pylist, pyconvert
-using Brillouin
+using Crystalline # to access space group information, such as irreps, band reps...
+using Brillouin # to obtain k-point paths in the Brillouin zone
+using GLMakie # for plotting
 
 # ---------------------------------------------------------------------------------------- #
 # construct the structure under study
@@ -33,7 +33,7 @@ ms = mpb.ModeSolver(;
 ms.init_params(; p = mp.ALL, reset_fields = true)
 
 # obtain the symmetry vectors of the bands computed above
-symvecs = obtain_symmetry_vectors(ms, sgnum)
+symvecs, symeigsv = obtain_symmetry_vectors(ms, sgnum);
 
 nᵀ = symvecs[1] # pick the 2 lower bands which we are going to study
 μᵀ = nᵀ.occupation # number of transverse bands
@@ -67,13 +67,20 @@ ms = mpb.ModeSolver(;
 ms.run()
 freqs = pyconvert(Matrix{Float64}, ms.all_freqs)
 
+# plot the bands of the original system
+plot(
+    kvs,
+    freqs;
+    linewidth = 3,
+    ylabel = "Frequency (c/a)",
+    annotations = collect_irrep_annotations(symeigsv, nᵀ.lgirsv),
+)
+
 ptbm_fit = photonic_fit(tbm, freqs[:, 1:μᵀ], kvs; verbose = true) # fit only the bands that are considered
 freqs_fit = spectrum(ptbm_fit, kvs; transform = energy2frequency)[:, μᴸ+1:end] # remove the longitudinal bands
 
 # ---------------------------------------------------------------------------------------- #
 # plot the results
-
-using GLMakie
 
 plot(
     kvs,

@@ -33,6 +33,7 @@ function __init__()
 end
 
 export mp, mpb
+export pylist, pyconvert # re-export useful PythonCall functions
 
 # --- Code loading ----------------------------------------------------------------------- #
 

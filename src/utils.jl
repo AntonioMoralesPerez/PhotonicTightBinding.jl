@@ -1,5 +1,6 @@
 using Crystalline: translation
 using SymmetricTightBinding: ReciprocalPointLike
+using MPBUtils
 
 """
     obtain_symmetry_vectors(ms::Py, sgnum::Int, Val{D}=Val(3); polarization) --> Vector{SymmetryVector{D}}
@@ -12,34 +13,19 @@ function obtain_symmetry_vectors(
     ms::Py,
     brs::Collection{NewBandRep{D}};
     polarization::Union{Nothing, Symbol, Integer} = nothing,
-    verbose::Bool = false,
 ) where {D}
     # TODO: maybe move this to MPBUtils.jl?
     lgirsv = irreps(brs) # small irreps & little groups assoc. w/ `brs`
 
-    # symmetry eigenvalues ⟨Eₙₖ|gᵢDₙₖ⟩
-    symeigsv = Vector{Vector{Vector{ComplexF64}}}(undef, length(lgirsv))
-    for (kidx, lgirs) in enumerate(lgirsv)
-        lg = group(lgirs)
-        kv = mp.Vector3(position(lg)()...)
-        redirect_stdout(verbose ? stdout : devnull) do
-            ms.solve_kpoint(kv)
-        end
+    # --- compute band symmetry data ---
+    symeigsv = compute_symmetry_eigenvalues(ms, lgirsv) # symmetry eigenvalues ⟨Eₙₖ|gᵢDₙₖ⟩
 
-        symeigsv[kidx] =
-            [Vector{ComplexF64}(undef, length(lg)) for n in 1:pyconvert(Int, ms.num_bands)]
-        for (i, gᵢ) in enumerate(lg)
-            W = mp.Matrix(eachcol(rotation(gᵢ))..., [0, 0, 1]) # decompose gᵢ = {W|w}
-            w = mp.Vector3(translation(gᵢ)...)
-            symeigs = ms.compute_symmetries(W, w) # compute ⟨Eₙₖ|gᵢDₙₖ⟩ for all bands
-            symeigs = pyconvert(Vector{ComplexF64}, symeigs) # convert from Py to Julia type
-            setindex!.(symeigsv[kidx], symeigs, i) # update container of sym. eigenvalues
-        end
+    if D == 2
+        polarization = _check_and_canonicalize_2d_polarization_arg(polarization)
+        symeigsv = compute_symmetry_eigenvalues(ms, lgirsv, polarization)
+    else # D == 3
+        symeigsv = compute_symmetry_eigenvalues(ms, lgirsv)
     end
-
-    # --- fix singular photonic symmetry content at Γ, ω=0 ---
-    D == 2 && (polarization = _check_and_canonicalize_2d_polarization_arg(polarization))
-    fixup_gamma_symmetry!(symeigsv, lgirsv, polarization)
 
     # --- obtain compatibility-respecting symmetry vectors assoc. w/ symmetry data ---
     ns = collect_compatible(symeigsv, brs)

@@ -1,4 +1,3 @@
-
 using SymmetricTightBinding
 using Optim
 using LinearAlgebra: eigen!, Hermitian
@@ -152,7 +151,11 @@ function photonic_fit(
             since_last_improvement = 0
             if best_loss ≤ tol
                 if verbose
-                    printstyled("   tolerance met: returning\n"; color = :green, bold = true)
+                    printstyled(
+                        "   tolerance met: returning\n";
+                        color = :green,
+                        bold = true,
+                    )
                 end
                 break
             end
@@ -178,11 +181,12 @@ function photonic_fit(
         if verbose
             printstyled(
                 "(mean error ",
-                round(sqrt(o.minimum / (n_fit * length(ks))); sigdigits = 3), ")\n";
-                color = :green
+                round(sqrt(o.minimum / (n_fit * length(ks))); sigdigits = 3),
+                ")\n";
+                color = :green,
             )
         end
     end
-        
+
     return tbm(best_cs)
 end

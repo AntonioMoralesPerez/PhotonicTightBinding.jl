@@ -1,5 +1,6 @@
 using Crystalline: translation
 using SymmetricTightBinding: ReciprocalPointLike
+using MPBUtils
 
 """
     obtain_symmetry_vectors(
@@ -28,14 +29,20 @@ function obtain_symmetry_vectors(
 ) where {D}
     lgirsv = irreps(brs) # small irreps & little groups assoc. w/ `brs`
 
-    # symmetry eigenvalues ⟨Eₙₖ|gᵢDₙₖ⟩
-    D == 2 && (polarization = _check_and_canonicalize_2d_polarization_arg(polarization))
-    symeigsv = compute_symmetry_eigenvalues(ms, lgirsv, polarization)
+    # --- compute band symmetry data ---
+    symeigsv = compute_symmetry_eigenvalues(ms, lgirsv) # symmetry eigenvalues ⟨Eₙₖ|gᵢDₙₖ⟩
+
+    if D == 2
+        polarization = _check_and_canonicalize_2d_polarization_arg(polarization)
+        symeigsv = compute_symmetry_eigenvalues(ms, lgirsv, polarization)
+    else # D == 3
+        symeigsv = compute_symmetry_eigenvalues(ms, lgirsv)
+    end
 
     # --- obtain compatibility-respecting symmetry vectors assoc. w/ symmetry data ---
     ns = collect_compatible(symeigsv, brs)
 
-    return ns
+    return ns, symeigsv
 end
 function obtain_symmetry_vectors(ms::Py, sgnum::Int, Dᵛ::Val{D} = Val(3); kws...) where {D}
     brs = primitivize(calc_bandreps(sgnum, Dᵛ)) # elementary band representations
@@ -239,6 +246,13 @@ function find_apolar_modes(
 end
 
 """
+    find_bandrep_decompositions(m::AbstractSymmetryVector{D},
+                                brs::Collection{NewBandRep{D}};
+                                μᴸ_min::Integer = 0,
+                                μᵀ_max::Integer = μᴸ_min + 2 * occupation(m),
+                                connected_to_zero_frequency::Bool = true,
+                                ) where {D})
+
 Obtain a bandrep decomposition for the symmetry vector of the bands provided `m` with a minimal
 number of auxiliary bands in the interval `[μᴸ_min,μᴸ_max]`.
 
@@ -266,7 +280,7 @@ function find_bandrep_decompositions(
 
         !isempty(apolar) || error("Check the symmetry vector and space group used")
 
-        return TightBindingCandidateSet(longitudinal, apolar, [Float64[]])
+        return TightBindingCandidateSet(longitudinal, apolar, [Int64[]])
 
     else
         μᴸ = μᴸ_min - 1
@@ -287,7 +301,7 @@ end
 """
     energy2frequency(λ::Real)
 
-Map a squared "energy" λ = ω² to a frequency ω, thresholding negative λ-values to NaN.
+Map a squared "energy" λ = ω² to a frequency ω, thresholding negative λ-values to 0.
 Intended for use in SymmetricTightBinding.jl's `spectrum` for photonic tight-binding models.
 """
-energy2frequency(λ::T) where T<:Real = sqrt(ifelse(λ < 0, convert(T, NaN), λ)) # λ = ω²
+energy2frequency(λ::T) where T <: Real = sqrt(ifelse(λ < 0, convert(T, 0), λ)) # λ = ω²

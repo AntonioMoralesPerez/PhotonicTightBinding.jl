@@ -4,10 +4,11 @@ module PhotonicTightBinding
 
 using Crystalline
 using MPBUtils
-using PhotonicBandConnectivity # TODO: ← maybe unnecessary dependency?
+# TODO: ↓ probably unnecessary dependency
+using PhotonicBandConnectivity
 using Crystalline: AbstractSymmetryVector, irdim, CompositeBandRep_from_indices, translation
 using Crystalline: reduce_translation_to_unitrange, constant, free, isapproxin, orbit
-using PythonCall: Py
+using PythonCall: pynew, pycopy!, pyimport, Py, pyconvert, pylist
 using Reexport
 @reexport using SymmetricTightBinding
 using Optim # for the fitting of the photonic bands
@@ -19,6 +20,7 @@ const DEFAULT_LONGITUDINAL_WEIGHT = 0.1 # for controlling the penalty for extra 
 # --- Export meep and mpb ---------------------------------------------------------------- #
 
 export mp, mpb # loaded from MPBUtils
+export pylist, pyconvert # for interacting with MPB
 
 # --- Code loading ----------------------------------------------------------------------- #
 

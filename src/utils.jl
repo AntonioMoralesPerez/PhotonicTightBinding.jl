@@ -30,8 +30,6 @@ function obtain_symmetry_vectors(
     lgirsv = irreps(brs) # small irreps & little groups assoc. w/ `brs`
 
     # --- compute band symmetry data ---
-    symeigsv = compute_symmetry_eigenvalues(ms, lgirsv) # symmetry eigenvalues ⟨Eₙₖ|gᵢDₙₖ⟩
-
     if D == 2
         polarization = _check_and_canonicalize_2d_polarization_arg(polarization)
         symeigsv = compute_symmetry_eigenvalues(ms, lgirsv, polarization)

@@ -33,13 +33,13 @@ ms = mpb.ModeSolver(;
 ms.init_params(; p = mp.ALL, reset_fields = true)
 
 # obtain the symmetry vectors of the bands computed above
-symvecs, symeigsv = obtain_symmetry_vectors(ms, sgnum);
+brs = primitivize(calc_bandreps(sgnum, Val(D))) # already primitive in SG 221, but necessary more generally
+symvecs, symeigsv = obtain_symmetry_vectors(ms, brs);
 
 nᵀ = symvecs[1] # pick the 2 lower bands which we are going to study
 μᵀ = nᵀ.occupation # number of transverse bands
 
 # obtain an EBR decomposition for the set of bands considered
-brs = calc_bandreps(sgnum)
 candidatesv = find_bandrep_decompositions(nᵀ, brs)
 
 ##-----------------------------------------------------------------------------------------#

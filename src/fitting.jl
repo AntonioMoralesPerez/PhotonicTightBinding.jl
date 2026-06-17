@@ -23,7 +23,7 @@ function fg!(
         # MSE loss (possibly with lasso penalty)
         if !isnothing(F)
             F += sum(abs2∘splat(-), zip(Es_r, Esᵀ); init=zero(F)) # regular loss
-            F += λ * sum(E -> max(zero(E), E)^2, Esᴸ)             # longitudinal loss
+            F += λ * sum(E -> max(zero(E), E)^2, Esᴸ; init=zero(F)) # longitudinal loss
             if !isnothing(lasso)
                 F += lasso * sum(abs, cs)
             end

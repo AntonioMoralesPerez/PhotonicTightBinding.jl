@@ -6,6 +6,8 @@ using PhotonicTightBinding
 using Crystalline # to access space group information, such as irreps, band reps...
 using Brillouin # to obtain k-point paths in the Brillouin zone
 using GLMakie # for plotting
+using PythonCall: pylist, pyconvert
+using ProgressMeter: @showprogress
 
 # ---------------------------------------------------------------------------------------- #
 # construct the structure under study
@@ -22,6 +24,14 @@ mat = mp.Medium(; epsilon = 12)
 geometry = map([[0, 0, 1], [0, 1, 0], [1, 0, 0]]) do axis
     mp.Cylinder(; radius = R1, center = [0, 0, 0], axis = axis, height = 1, material = mat)
 end
+# … or, alternatively, a set of square-cross-section rods of equal filling fraction (NB:
+# `block_size`, not `size`, since assigning to `size` would shadow `Base.size`)
+block_size = [R1*√π, R1*√π, 1e20]
+geometry = [
+    mp.Block(center=[0,0,0], material=mat, size=block_size, e1 = [1,0,0], e2 = [0,1,0], e3 = [0,0,1]),
+    mp.Block(center=[0,0,0], material=mat, size=block_size, e1 = [0,1,0], e2 = [0,0,1], e3 = [1,0,0]),
+    mp.Block(center=[0,0,0], material=mat, size=block_size, e1 = [0,0,1], e2 = [1,0,0], e3 = [0,1,0]),
+]
 
 # solve the system
 ms = mpb.ModeSolver(;
@@ -37,6 +47,7 @@ brs = primitivize(calc_bandreps(sgnum, Val(D))) # already primitive in SG 221, b
 symvecs, symeigsv = obtain_symmetry_vectors(ms, brs);
 
 nᵀ = symvecs[1] # pick the 2 lower bands which we are going to study
+#nᵀ = sum(symvecs) # include every considered band (6 bands here)
 μᵀ = nᵀ.occupation # number of transverse bands
 
 # obtain an EBR decomposition for the set of bands considered
@@ -46,11 +57,13 @@ candidatesv = find_bandrep_decompositions(nᵀ, brs)
 # make a TB model out of one of the solutions obtained
 
 cbr = candidatesv[1].apolarv[1] # take one of the possible solutions
-μᵀ⁺ᴸ = occupation(cbr) # number of apolar modes
-μᴸ = μᵀ⁺ᴸ - μᵀ # number of longitudinal modes
+cbrᴸ = candidatesv[1].longitudinal
+μᵀ⁺ᴸ = occupation(cbr) # number of apolar (longitudinal + transverse) modes
+μᴸ = occupation(cbrᴸ)  # number of longitudinal modes
+μᵀ = μᵀ⁺ᴸ - μᴸ         # number of transverse modes
 
-# realize that if we only take intra-cell hoppings, the fitting will not converge
-tbm = tb_hamiltonian(cbr, [[0, 0, 0], [1, 0, 0]]);
+# if we only take intra-cell hoppings, the fitting will not converge
+tbm = tb_hamiltonian(cbr, [[0, 0, 0], [1, 0, 0], [1, 1, 0], [1, 1, 1], [2, 0, 0]]);
 
 ##-----------------------------------------------------------------------------------------#
 # fit the TB model to the MPB results
@@ -64,24 +77,33 @@ ms = mpb.ModeSolver(;
     geometry = pylist(geometry),
     k_points = pylist(map(k -> mp.Vector3(k...), kvs)),
 )
-ms.run()
-freqs = pyconvert(Matrix{Float64}, ms.all_freqs)
+ms.init_params(p = mp.NO_PARITY, reset_fields = true)
+
+# solve across k-points
+freqs = Matrix{Float64}(undef, length(kvs), pyconvert(Int, ms.num_bands))
+@showprogress 0.1 for (i, kv) in enumerate(kvs)
+    redirect_stdout(devnull) do
+        ms.solve_kpoint(mp.Vector3(kv...))
+    end
+    freqs[i,:] = sort!(pyconvert(Vector{Float64}, ms.get_freqs()))
+end
 
 # plot the bands of the original system
 plot(
-    kvs,
-    freqs;
-    linewidth = 3,
-    ylabel = "Frequency (c/a)",
+    kvs, freqs;
+    linewidth = 3, ylabel = "Frequency (c/a)",
     annotations = collect_irrep_annotations(symeigsv, nᵀ.lgirsv),
 )
 
-ptbm_fit = photonic_fit(tbm, freqs[:, 1:μᵀ], kvs; verbose = true) # fit only the bands that are considered
+ptbm_fit = photonic_fit(
+    tbm, freqs[:, 1:μᵀ], kvs; # fit only the bands that are considered
+    max_multistarts=15, verbose = true, lasso=1e-3
+)
 freqs_fit = spectrum(ptbm_fit, kvs; transform = energy2frequency)[:, μᴸ+1:end] # remove the longitudinal bands
 
-# ---------------------------------------------------------------------------------------- #
-# plot the results
 
+# ---------------------------------------------------------------------------------------- #
+# plot fitting results
 plot(
     kvs,
     freqs,

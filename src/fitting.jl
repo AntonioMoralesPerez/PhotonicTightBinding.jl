@@ -177,6 +177,11 @@ band and per **k**-point, is less than `atol`.
 - `lasso` (default, `nothing`): if set to a positive number, applies a LASSO penalty to the
   hopping amplitudes, encouraging model sparsity (i.e., small hopping amplitudes to
   vanish). Setting to `nothing` disables the LASSO penalty.
+- `objective_callback` (default, `nothing`): if set to a function, it is called as
+  `objective_callback(F, G, H, cs)` immediately before every objective evaluation, with the
+  same arguments the objective receives (`G`/`H` are `nothing` when the optimizer requests
+  no gradient/Hessian). Intended for instrumentation — e.g. counting evaluations or tracing
+  the search — and imposes no cost when left at `nothing`.
 - `options` (default, `Optim.Options(g_abstol = 5e-3, f_reltol = 1e-5)`): a
   `Optim.Options(…)` structure of optimization options, used during the local optimization
   of the multi-start search (i.e., low tolerances, suitable for the low precision demands
@@ -200,6 +205,7 @@ function photonic_fit(
     longitudinal_penalty::Symbol = :hinge,
     longitudinal_width::Real = 1e-3,
     lasso::Union{Nothing,Real} = nothing,
+    objective_callback::Union{Nothing,Function} = nothing,
     options::Optim.Options = Optim.Options(;
         g_abstol = 5e-3,
         f_reltol = 1e-5,
@@ -224,8 +230,10 @@ function photonic_fit(
     δ = longitudinal_width * (sum(Em_r) / length(Em_r))
     penalty = Val(longitudinal_penalty)
     cache = TightBindingCache(tbm, ks) # hᵢ(k) tabulated once, shared by objective & moments
-    obj = make_fit_objective(
-        (F, G, H, cs) -> photonic_fgh!(F, G, H, cs, cache, Em_r, μᴸ; λ, lasso, penalty, δ))
+    obj = make_fit_objective() do F, G, H, cs
+        isnothing(objective_callback) || objective_callback(F, G, H, cs)
+        photonic_fgh!(F, G, H, cs, cache, Em_r, μᴸ; λ, lasso, penalty, δ)
+    end
     # moment seeding from the transverse reference alone: the longitudinal bands are absent
     # from `Em_r`, so the trace fit `c₀` & scales are biased slightly high — but since the
     # longitudinal target is merely E ≤ 0, they remain apt seeding heuristics

@@ -1,192 +1,161 @@
-using SymmetricTightBinding
+# Photonic band fitting, delegating all generic machinery to SymmetricTightBinding:
+# `TightBindingCache` (up-front hᵢ(k) caching + work arrays for Hamiltonian assembly and
+# Feynman–Hellmann gradients) and `multistart_fit`/`make_fit_objective`/`spectralmoments`
+# (implemented in its Optim extension, which is guaranteed loaded since both
+# SymmetricTightBinding and Optim are dependencies here). Only the genuinely
+# photonics-specific parts live in this file:
+# - the frequency↔energy convention (the model's energies are squared frequencies, E = ω²);
+# - the band-split loss: the model's `μᴸ` lowest (longitudinal) bands are penalized toward
+#   non-positive energies via `λ·max(0, E)²`, while the remaining (transverse) bands are
+#   fit to the ω²-reference by least squares.
+
+using SymmetricTightBinding: ReciprocalPointLike, energy_gradient_wrt_hopping
+using SymmetricTightBinding: TightBindingCache, multistart_fit, make_fit_objective,
+                             spectralmoments
 using Optim
-using LinearAlgebra: eigen!, Hermitian
+using LinearAlgebra: eigen!, eigvals!
 
-# ---------------------------------------------------------------------------------------- #
-# Define loss as sum of absolute squared error (MSE, up to scaling)
-
-function fg!(
-    F, G, cs, tbm::TightBindingModel, Em_r, ks, μᴸ;
-    λ = 1, lasso::Union{Nothing,Real} = nothing
+# photonic loss, its gradient, and its Gauss–Newton Hessian, following the calling
+# convention of `SymmetricTightBinding.make_fit_objective`: with sorted model energies `Es`
+# split as `Esᴸ = Es[1:μᴸ]` (longitudinal) & `Esᵀ = Es[μᴸ+1:end]` (transverse),
+#   F = ∑ₖ [ ∑ₙ (Eₙʳ − Eₙᵀ)² + λ ∑ₗ max(0, Eₗᴸ)² ]  (+ optional LASSO term),
+# i.e., least-squares matching of the transverse bands to the reference plus a one-sided
+# quadratic penalty pushing longitudinal bands to non-positive energies (imaginary
+# frequencies). Both terms are squared residuals, so the Gauss–Newton Hessian is
+# `2∑∇E∇Eᵀ + 2λ∑_{E>0}∇E∇Eᵀ`.
+function photonic_fgh!(
+    F, G, H, cs, cache::TightBindingCache, Em_r, μᴸ::Integer;
+    λ::Real = 1, lasso::Union{Nothing,Real} = nothing
 )
-    ptbm = tbm(cs)
-    if !isnothing(G)
-        fill!(G, zero(eltype(G)))
-    end
+    isnothing(G) || fill!(G, zero(eltype(G)))
+    isnothing(H) || fill!(H, zero(eltype(H)))
 
-    for (Es_r, k) in zip(eachrow(Em_r), ks)
-        H = Hermitian(ptbm(k))
-        Es, us = eigen!(H) # no Bloch phases, deliberately
+    for (κ, Es_r) in enumerate(eachrow(Em_r))
+        Hₖ = cache(cs, κ) # assembled into `cache`'s work array (mutated by eigen below)
+        if isnothing(G) && isnothing(H)
+            # fast-path, avoiding eigenvector eval. if this is a residuals-only calculation
+            Es = eigvals!(Hₖ)
+            us = nothing
+        else
+            Es, us = eigen!(Hₖ) # no Bloch phases, deliberately
+        end
         Esᴸ = @view Es[1:μᴸ]     # longitudinal bands
         Esᵀ = @view Es[μᴸ+1:end] # regular, transverse bands
 
-        # MSE loss (possibly with lasso penalty)
+        # photonic loss
         if !isnothing(F)
-            F += sum(abs2∘splat(-), zip(Es_r, Esᵀ); init=zero(F)) # regular loss
-            F += λ * sum(E -> max(zero(E), E)^2, Esᴸ; init=zero(F)) # longitudinal loss
-            if !isnothing(lasso)
-                F += lasso * sum(abs, cs)
-            end
+            F += sum(abs2∘splat(-), zip(Es_r, Esᵀ); init = zero(F))   # transverse
+            F += λ * sum(E -> max(zero(E), E)^2, Esᴸ; init = zero(F)) # longitudinal
         end
 
-        # gradient of loss
-        if !isnothing(G)
-            ∇Es = energy_gradient_wrt_hopping(ptbm, k, (Es, us))
+        # loss gradient & Gauss–Newton approx. of Hessian
+        if !isnothing(G) || !isnothing(H)
+            ∇Es = energy_gradient_wrt_hopping(cache, κ, (Es, us))
             ∇Esᴸ = @view ∇Es[1:μᴸ]
             ∇Esᵀ = @view ∇Es[μᴸ+1:end]
-            @assert size(Esᵀ) == size(∇Esᵀ) == size(Es_r)
-            for (E_r, E, ∇E) in zip(Es_r, Esᵀ, ∇Esᵀ) # regular loss gradient
-                G .+= (-2 * (E_r - E)) .* ∇E
+            for (E_r, E, ∇E) in zip(Es_r, Esᵀ, ∇Esᵀ) # transverse
+                isnothing(G) || (G .+= (-2 * (E_r - E)) .* ∇E)
+                isnothing(H) || (H .+= 2 .* ∇E .* ∇E')
             end
-            for (E, ∇E) in zip(Esᴸ, ∇Esᴸ)            # longitudinal loss gradient
-                if E > 0
-                    G .+= (2λ * E) .* ∇E
-                end
-            end
-            if !isnothing(lasso)
-                G .+= lasso .* sign.(cs)             # lasso penalty
+            for (E, ∇E) in zip(Esᴸ, ∇Esᴸ)            # longitudinal
+                E > 0 || continue
+                isnothing(G) || (G .+= (2λ * E) .* ∇E)
+                isnothing(H) || (H .+= (2λ) .* ∇E .* ∇E')
             end
         end
     end
+
+    # lasso penalty term & gradient
+    if !isnothing(lasso)
+        lasso *= size(Em_r, 1) # rescaling `lasso` weight to ensure relative contributions
+                               # of LSE vs LASSO are invariant to number of k-points
+        !isnothing(F) && (F += lasso * sum(abs, cs))
+        !isnothing(G) && (G .+= lasso .* sign.(cs))
+    end
+
     return F
 end
 
 """
-    fit(tbm::TightBindingModel{D},
-        freqs_r::AbstractMatrix{<:Real},
-        ks::AbstractVector{<:ReciprocalPointLike{D}},
-        kws...)                                  --> ParameterizedTightBindingModel{D}
+    photonic_fit(tbm::TightBindingModel{D},
+                 freqs_r::AbstractMatrix{<:Real},
+                 ks::AbstractVector{<:ReciprocalPointLike{D}},
+                 kws...)                          --> ParameterizedTightBindingModel{D}
 
-Fit the hopping amplitudes of a tight-binding model `tbm` to the reference frequencies `freqs_r`,
-assumed sampled over **k**-points `ks`. `freqs_r[i,n]` denotes the band frequency at `ks[i]` in
-band `n` (and bands are assumed energetically sorted).
+Fit the hopping amplitudes of a tight-binding model `tbm` to the reference frequencies
+`freqs_r`, assumed sampled over **k**-points `ks`. `freqs_r[i,n]` denotes the band
+frequency at `ks[i]` in band `n` (and bands are assumed energetically sorted).
 
-Fitting is performed using a local optimizer (configurable via `optimizer` from Optim.jl)
-with mean-squared error loss. The local optimizer is used as a basis for a "multi-start"
-global optimization.
-The global search returns early if the mean fit error, per band and per frequency, is less than
-`atol`.
+The model may have more bands than the reference: the `μᴸ = tbm.N - size(freqs_r, 2)`
+lowest model bands are treated as longitudinal bands, penalized toward non-positive
+energies (i.e., imaginary frequencies) with weight `longitudinal_weight`; the remaining
+(transverse) bands are fit to the reference by least squares.
+
+Fitting is performed using a local optimizer (configurable via `optimizer` from Optim.jl),
+used as the basis of a moment-seeded, basin-hopping multi-start global optimization — the
+machinery of `SymmetricTightBinding.fit` & `SymmetricTightBinding.multistart_fit`, reused
+here with the photonic loss. The global search returns early if the mean fit error, per
+band and per **k**-point, is less than `atol`.
 
 ## Keyword arguments
-- `optimizer` (default, `Optim.LBFGS()`): a local optimizer from Optim.jl, capable of
-  exploiting gradient information.
-- `max_multistarts` (default, `100`): maximum number of multi-start iterations.
-- `atol` (default, `1e-3`): threshold for early return, specifying the minimum required mean
-  energetic error (averaged over bands and **k**-points).
-- `verbose` (default, `false`): whether to print information on optimization progress.
-- `options` (default, empty): a `Optim.Options(…)` structure of optimization options, used
-  during the local optimization of the multi-start search. Defaults to
-  `Optim.Options(g_abstol=1e-2, f_reltol=1e-5)` (i.e., low tolerances, suitable for the
-  low precision demands of the multi-start search).
-- `polish` (default, `true`): whether to polish off the multi-start optimization with a
-  final local optimization step using default Optim.jl options. This is useful to ensure
-  that the best candidate from the multi-start search is fully converged.
-- `longitudinal_weight` (default, `$DEFAULT_LONGITUDINAL_WEIGHT`): a weighting factor used
-  to scale the loss term from longitudinal bands. Increase to promote longitudinal bands
-  having imaginary frequencies (i.e., negative energies).
-- `lasso` (defalt, `nothing`): if set to a positive number, applies a LASSO penalty to the
+- `longitudinal_weight` (default, `$DEFAULT_LONGITUDINAL_WEIGHT`): a weighting factor `λ`
+  used to scale the loss term from longitudinal bands. Increase to promote longitudinal
+  bands having imaginary frequencies (i.e., negative energies).
+- `optimizer` (default, `Optim.NewtonTrustRegion()`): a local optimizer from Optim.jl.
+  First-order optimizers exploit the analytic (Feynman–Hellmann) gradient of the loss;
+  second-order optimizers additionally exploit its Gauss–Newton Hessian (both the
+  transverse and the longitudinal loss terms are squared residuals), thereby acting as
+  Gauss–Newton (line-search) or Levenberg–Marquardt-like (trust-region) least-squares
+  solvers.
+- `atol` (default, `1e-3`): threshold for early return, specifying the minimum required
+  mean energetic error (averaged over bands and **k**-points).
+- `lasso` (default, `nothing`): if set to a positive number, applies a LASSO penalty to the
   hopping amplitudes, encouraging model sparsity (i.e., small hopping amplitudes to
   vanish). Setting to `nothing` disables the LASSO penalty.
+- `options` (default, `Optim.Options(g_abstol = 5e-3, f_reltol = 1e-5)`): a
+  `Optim.Options(…)` structure of optimization options, used during the local optimization
+  of the multi-start search (i.e., low tolerances, suitable for the low precision demands
+  of the multi-start search).
+- Remaining keyword arguments (`max_multistarts`, `restart_every`, `verbose`, `polish`,
+  `init`, …) are forwarded to `SymmetricTightBinding.multistart_fit`; see its docstring and
+  `SymmetricTightBinding.fit`'s for their meaning and defaults.
 
 ## Notes
-The frequencies are provided by the user but the energies are used internally to do the fitting.
-The tight-binding model energies (E) are compared to squared frequencies (ω²), so the provided
-frequencies are squared before fitting.
-```
+The frequencies are provided by the user but the energies are used internally to do the
+fitting. The tight-binding model energies (E) are compared to squared frequencies (ω²), so
+the provided frequencies are squared before fitting.
 """
 function photonic_fit(
     tbm::TightBindingModel{D},
     freqs_r::AbstractMatrix{<:Real},
     ks::AbstractVector{<:ReciprocalPointLike{D}};
-    optimizer::Optim.FirstOrderOptimizer = LBFGS(),
+    optimizer::Optim.AbstractOptimizer = NewtonTrustRegion(),
     atol::Real = 1e-3, # minimum threshold error, per k-point & per band, averaged over both
-    max_multistarts::Integer = 100,
-    verbose::Bool = false,
     longitudinal_weight::Real = DEFAULT_LONGITUDINAL_WEIGHT,
-    lasso :: Union{Nothing,Real} = nothing,
+    lasso::Union{Nothing,Real} = nothing,
     options::Optim.Options = Optim.Options(;
         g_abstol = 5e-3,
         f_reltol = 1e-5,
-        ),
-    init::Union{Nothing, Vector{Float64}} = nothing,
-    polish::Bool = true,
+    ),
+    kws..., # remaining kwargs (`max_multistarts`, `restart_every`, `verbose`, `polish`,
+            # `init`, …) are forwarded to `SymmetricTightBinding.multistart_fit`
 ) where D
     # convert frequencies to energies and sort them
     Em_r = freqs_r .^ 2
     sort!(Em_r; dims = 2)
 
     μᴸ = tbm.N - size(Em_r, 2) # number of longitudinal bands
-    # let-block-capture-trick to make absolutely sure we have no closure boxing issues
-    _fg! = let tbm = tbm, Em_r = Em_r, ks = ks, μᴸ = μᴸ, λ = longitudinal_weight, lasso = lasso
-        (F, G, cs) -> fg!(F, G, cs, tbm, Em_r, ks, μᴸ; λ, lasso)
-    end
+    μᴸ ≥ 0 || error(lazy"model has fewer bands ($(tbm.N)) than the reference ($(size(Em_r, 2)))")
 
-    # multi-start optimization
-    n_fit = size(Em_r, 2) # number of bands to fit
-    tol = length(ks) * n_fit * atol^2 # sum of absolute squares tolerance
-    best_cs = Vector{Float64}(undef, length(tbm))
-    best_loss = Inf
-    init_hopping_scale = sum(Em_r) / length(Em_r) * 0.25
-    init_cs = isnothing(init) ? randn(length(tbm)) .* init_hopping_scale : init
-    since_last_improvement = 0
-    verbose && println("Starting multi-start optimization with $max_multistarts trials:")
-    for t in 1:max_multistarts
-        verbose && print("   trial #$t")
-        o = optimize(Optim.only_fg!(_fg!), init_cs, optimizer, options)
-        accept = o.minimum * 1.005 < best_loss # be at least 0.5% better
-        if verbose
-            mse_loss = o.minimum
-            if !isnothing(lasso)
-                mse_loss -= lasso * sum(abs, o.minimizer)
-            end
-            mean_err = round(sqrt(mse_loss / (n_fit * length(ks))); sigdigits = 3)
-            printstyled(" (mean err ", mean_err, ")"; color = :light_black)
-            accept && printstyled(" → new best"; color = :green)
-            println()
-        end
-
-        if accept
-            best_loss = o.minimum
-            best_cs = o.minimizer
-            since_last_improvement = 0
-            if best_loss ≤ tol
-                if verbose
-                    printstyled(
-                        "   tolerance met: returning\n";
-                        color = :green,
-                        bold = true,
-                    )
-                end
-                break
-            end
-        end
-
-        # a simple basin-hopping exploration strategy
-        since_last_improvement += 1
-        step_scale = since_last_improvement.^(1/4) * 0.5 # TODO: improve this? - very adhoc
-        init_cs = best_cs .+ step_scale .* randn(length(tbm)) .* abs.(best_cs)
-    end
-    if verbose && best_loss > tol
-        printstyled(
-            "   `max_multistarts` exceeded: tolerance not met\n   (consider increasing the number of tight-binding terms)\n";
-            color = :yellow,
-        )
-    end
-
-    # polish off the best result
-    if polish
-        verbose && print("Polishing off ")
-        o = optimize(Optim.only_fg!(_fg!), best_cs, optimizer)
-        o.minimum > best_loss && (best_loss = o.minimum; best_cs = o.minimizer)
-        if verbose
-            printstyled(
-                "(mean error ",
-                round(sqrt(o.minimum / (n_fit * length(ks))); sigdigits = 3),
-                ")\n";
-                color = :green,
-            )
-        end
-    end
-
+    λ = longitudinal_weight
+    cache = TightBindingCache(tbm, ks) # hᵢ(k) tabulated once, shared by objective & moments
+    obj = make_fit_objective(
+        (F, G, H, cs) -> photonic_fgh!(F, G, H, cs, cache, Em_r, μᴸ; λ, lasso))
+    # moment seeding from the transverse reference alone: the longitudinal bands are absent
+    # from `Em_r`, so the trace fit `c₀` & scales are biased slightly high — but since the
+    # longitudinal target is merely E ≤ 0, they remain apt seeding heuristics
+    moments = spectralmoments(cache, Em_r)
+    tol = length(ks) * size(Em_r, 2) * atol^2 # sum of absolute squares tolerance
+    best_cs, _ = multistart_fit(obj, moments; optimizer, tol, options, kws...)
     return tbm(best_cs)
 end

@@ -6,8 +6,8 @@
 # photonics-specific parts live in this file:
 # - the frequency↔energy convention (the model's energies are squared frequencies, E = ω²);
 # - the band-split loss: the model's `μᴸ` lowest (longitudinal) bands are penalized toward
-#   non-positive energies via `λ·max(0, E)²`, while the remaining (transverse) bands are
-#   fit to the ω²-reference by least squares.
+#   non-positive energies via `λ·ψ(E)`, while the remaining (transverse) bands are fit to
+#   the ω²-reference by least squares. See the penalty variants below for the choice of ψ.
 
 using SymmetricTightBinding: ReciprocalPointLike, energy_gradient_wrt_hopping
 using SymmetricTightBinding: TightBindingCache, multistart_fit, make_fit_objective,
@@ -15,17 +15,62 @@ using SymmetricTightBinding: TightBindingCache, multistart_fit, make_fit_objecti
 using Optim
 using LinearAlgebra: eigen!, eigvals!
 
+# --- longitudinal band penalties ---------------------------------------------------------
+# The longitudinal bands have no reference data attached: they are instead shaped by a
+# penalty ψ(E), whose choice encodes what we believe about them (namely, that they ought to
+# sit at zero or imaginary frequency, i.e. E ≤ 0). `_longitudinal_penalty` returns the
+# triple `(ψ, ψ′, ψ″)`, with ψ″ supplying the curvature used for the Hessian; `δ` is the
+# smoothing width, and is ignored by the variants that do not need it.
+#
+# `:hinge`   ψ = max(0,E)²  one-sided quadratic; the default. Its gradient vanishes at
+#                           E = 0, so nothing pushes a band below zero: the minimum sits at
+#                           E* ≈ g/(2λ) > 0 (g being the competing transverse gradient), and
+#                           zero is approached as 1/λ but never attained.
+# `:strict`  ψ = one-sided, the linear tail exerts a constant restoring gradient, so once
+#            linear beyond  λ ≳ g, E = 0 becomes a genuine minimum rather than an asymptote
+#            δ, quadratic   (an exact penalty): the residual leakage falls to E* ≈ gδ/λ. The
+#            within it      quadratic core keeps ψ twice differentiable for the trust-region
+#                           solver — but only within |E| < δ, so the quadratic model is poor
+#                           in the linear branch and the solver needs ~4–10× more iterations.
+# `:zero`    ψ = E²         two-sided; treats "longitudinal ⇒ ω = 0" as a datum to be fitted
+#                           rather than an inequality to be satisfied. It also penalizes the
+#                           harmless E < 0, so with several longitudinal bands it
+#                           over-constrains the model badly (measured: RMS an order of
+#                           magnitude worse on a 4-longitudinal-band model).
+#
+# Empirically (cf. benchmark/longitudinal_loss_benchmark.jl), E* ≈ gδ/λ is well obeyed, and
+# `:strict` lowers the leakage by 2–3 orders of magnitude relative to `:hinge` without
+# measurably changing the transverse fit quality either way.
+const LONGITUDINAL_PENALTIES = (:hinge, :strict, :zero)
+
+@inline function _longitudinal_penalty(::Val{:hinge}, E::T, δ::T) where T<:Real
+    return E > zero(T) ? (E^2, 2E, T(2)) : (zero(T), zero(T), zero(T))
+end
+@inline function _longitudinal_penalty(::Val{:zero}, E::T, δ::T) where T<:Real
+    return (E^2, 2E, T(2))
+end
+@inline function _longitudinal_penalty(::Val{:strict}, E::T, δ::T) where T<:Real
+    if E ≤ zero(T)
+        return (zero(T), zero(T), zero(T))
+    elseif E < δ
+        return (E^2/(2δ), E/δ, inv(δ))
+    else
+        return (E - δ/2, one(T), zero(T))
+    end
+end
+
 # photonic loss, its gradient, and its Gauss–Newton Hessian, following the calling
 # convention of `SymmetricTightBinding.make_fit_objective`: with sorted model energies `Es`
 # split as `Esᴸ = Es[1:μᴸ]` (longitudinal) & `Esᵀ = Es[μᴸ+1:end]` (transverse),
-#   F = ∑ₖ [ ∑ₙ (Eₙʳ − Eₙᵀ)² + λ ∑ₗ max(0, Eₗᴸ)² ]  (+ optional LASSO term),
-# i.e., least-squares matching of the transverse bands to the reference plus a one-sided
-# quadratic penalty pushing longitudinal bands to non-positive energies (imaginary
-# frequencies). Both terms are squared residuals, so the Gauss–Newton Hessian is
-# `2∑∇E∇Eᵀ + 2λ∑_{E>0}∇E∇Eᵀ`.
+#   F = ∑ₖ [ ∑ₙ (Eₙʳ − Eₙᵀ)² + λ ∑ₗ ψ(Eₗᴸ) ]  (+ optional LASSO term),
+# i.e., least-squares matching of the transverse bands to the reference plus a penalty ψ
+# pushing the longitudinal bands toward zero/imaginary frequency (see above). The transverse
+# term is a squared residual, contributing the Gauss–Newton Hessian `2∑∇E∇Eᵀ`; the
+# longitudinal term contributes its exact curvature `λ∑ψ″∇E∇Eᵀ`.
 function photonic_fgh!(
     F, G, H, cs, cache::TightBindingCache, Em_r, μᴸ::Integer;
-    λ::Real = 1, lasso::Union{Nothing,Real} = nothing
+    λ::Real = 1, lasso::Union{Nothing,Real} = nothing,
+    penalty::Val = Val(:hinge), δ::Real = 0.0
 )
     isnothing(G) || fill!(G, zero(eltype(G)))
     isnothing(H) || fill!(H, zero(eltype(H)))
@@ -44,8 +89,9 @@ function photonic_fgh!(
 
         # photonic loss
         if !isnothing(F)
-            F += sum(abs2∘splat(-), zip(Es_r, Esᵀ); init = zero(F))   # transverse
-            F += λ * sum(E -> max(zero(E), E)^2, Esᴸ; init = zero(F)) # longitudinal
+            F += sum(abs2∘splat(-), zip(Es_r, Esᵀ); init = zero(F))          # transverse
+            F += λ * sum(E -> _longitudinal_penalty(penalty, E, δ)[1], Esᴸ;
+                         init = zero(F))                                     # longitudinal
         end
 
         # loss gradient & Gauss–Newton approx. of Hessian
@@ -58,9 +104,9 @@ function photonic_fgh!(
                 isnothing(H) || (H .+= 2 .* ∇E .* ∇E')
             end
             for (E, ∇E) in zip(Esᴸ, ∇Esᴸ)            # longitudinal
-                E > 0 || continue
-                isnothing(G) || (G .+= (2λ * E) .* ∇E)
-                isnothing(H) || (H .+= (2λ) .* ∇E .* ∇E')
+                _, ψ′, ψ″ = _longitudinal_penalty(penalty, E, δ)
+                isnothing(G) || iszero(ψ′) || (G .+= (λ * ψ′) .* ∇E)
+                isnothing(H) || iszero(ψ″) || (H .+= (λ * ψ″) .* ∇E .* ∇E')
             end
         end
     end
@@ -100,13 +146,32 @@ band and per **k**-point, is less than `atol`.
 ## Keyword arguments
 - `longitudinal_weight` (default, `$DEFAULT_LONGITUDINAL_WEIGHT`): a weighting factor `λ`
   used to scale the loss term from longitudinal bands. Increase to promote longitudinal
-  bands having imaginary frequencies (i.e., negative energies).
+  bands having imaginary frequencies (i.e., negative energies) — though with the default
+  `:hinge` penalty this has surprisingly little leverage over how far above zero they
+  ultimately settle (see `longitudinal_penalty`).
+- `longitudinal_penalty` (default, `:hinge`): the shape `ψ` of the penalty applied to the
+  longitudinal bands, whose target is `E ≤ 0` (zero or imaginary frequency):
+  - `:hinge` (`ψ = max(0,E)²`): a one-sided quadratic. Cheap, but its gradient vanishes at
+    `E = 0`, so the longitudinal bands settle slightly *above* zero — typically at a few
+    percent of the reference energy scale, and not much improvable by raising `λ`.
+  - `:strict` (one-sided; linear beyond a width `δ`, quadratic within it): the linear tail
+    makes `E = 0` a genuine minimum rather than an asymptote, lowering the residual
+    longitudinal energy by 2–3 orders of magnitude, at ~4–10× more iterations. Worth trying
+    if a longitudinal band strays into the transverse manifold, where it can corrupt the
+    energy-ordered band assignment.
+  - `:zero` (`ψ = E²`): fits the longitudinal bands *to* zero, two-sided. Only advisable
+    with a single longitudinal band; with several it over-constrains the model badly.
+- `longitudinal_width` (default, `1e-3`): the smoothing width `δ` of the `:strict` penalty,
+  relative to the mean reference energy. Leakage scales as `δ`, while smaller `δ` costs
+  iterations; loosening it much beyond the default is only safe for easy problems. Unused by
+  the other penalties.
 - `optimizer` (default, `Optim.NewtonTrustRegion()`): a local optimizer from Optim.jl.
   First-order optimizers exploit the analytic (Feynman–Hellmann) gradient of the loss;
-  second-order optimizers additionally exploit its Gauss–Newton Hessian (both the
-  transverse and the longitudinal loss terms are squared residuals), thereby acting as
-  Gauss–Newton (line-search) or Levenberg–Marquardt-like (trust-region) least-squares
-  solvers.
+  second-order optimizers additionally exploit its Hessian, which is Gauss–Newton for the
+  transverse term (a squared residual) and exact in `ψ` for the longitudinal one, thereby
+  acting as Gauss–Newton (line-search) or Levenberg–Marquardt-like (trust-region)
+  least-squares solvers. Note that this is a good model of the loss only where `ψ` is itself
+  quadratic, which is why `:strict` needs more iterations than `:hinge`.
 - `atol` (default, `1e-3`): threshold for early return, specifying the minimum required
   mean energetic error (averaged over bands and **k**-points).
 - `lasso` (default, `nothing`): if set to a positive number, applies a LASSO penalty to the
@@ -132,6 +197,8 @@ function photonic_fit(
     optimizer::Optim.AbstractOptimizer = NewtonTrustRegion(),
     atol::Real = 1e-3, # minimum threshold error, per k-point & per band, averaged over both
     longitudinal_weight::Real = DEFAULT_LONGITUDINAL_WEIGHT,
+    longitudinal_penalty::Symbol = :hinge,
+    longitudinal_width::Real = 1e-3,
     lasso::Union{Nothing,Real} = nothing,
     options::Optim.Options = Optim.Options(;
         g_abstol = 5e-3,
@@ -146,11 +213,19 @@ function photonic_fit(
 
     μᴸ = tbm.N - size(Em_r, 2) # number of longitudinal bands
     μᴸ ≥ 0 || error(lazy"model has fewer bands ($(tbm.N)) than the reference ($(size(Em_r, 2)))")
+    longitudinal_penalty ∈ LONGITUDINAL_PENALTIES ||
+        error(lazy"unknown `longitudinal_penalty = :$longitudinal_penalty`; must be one of $LONGITUDINAL_PENALTIES")
 
     λ = longitudinal_weight
+    # smoothing width of the `:strict` penalty, taken relative to the reference energy scale
+    # so that the default ports across structures: small enough that the linear
+    # (exact-penalty) branch governs any leakage we would care about, large enough to keep
+    # the ψ″ = 1/δ curvature — and hence the iteration count — in hand
+    δ = longitudinal_width * (sum(Em_r) / length(Em_r))
+    penalty = Val(longitudinal_penalty)
     cache = TightBindingCache(tbm, ks) # hᵢ(k) tabulated once, shared by objective & moments
     obj = make_fit_objective(
-        (F, G, H, cs) -> photonic_fgh!(F, G, H, cs, cache, Em_r, μᴸ; λ, lasso))
+        (F, G, H, cs) -> photonic_fgh!(F, G, H, cs, cache, Em_r, μᴸ; λ, lasso, penalty, δ))
     # moment seeding from the transverse reference alone: the longitudinal bands are absent
     # from `Em_r`, so the trace fit `c₀` & scales are biased slightly high — but since the
     # longitudinal target is merely E ≤ 0, they remain apt seeding heuristics

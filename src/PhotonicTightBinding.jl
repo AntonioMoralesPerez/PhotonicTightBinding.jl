@@ -15,7 +15,7 @@ using Optim # for the fitting of the photonic bands
 
 # --- Constants -------------------------------------------------------------------------- #
 
-const DEFAULT_LONGITUDINAL_WEIGHT = 0.1 # for controlling the penalty for extra bands in the loss function
+const DEFAULT_LONGITUDINAL_WEIGHT = 0.15 # for controlling the penalty for extra bands in the loss function
 
 # --- Export meep and mpb ---------------------------------------------------------------- #
 

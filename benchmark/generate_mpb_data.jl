@@ -1,8 +1,9 @@
 # benchmark/generate_mpb_data.jl
 #
-# Computes & stores the MPB reference data (SG 225 inverse opal; cf.
-# examples/mpb_inverse_opal.jl) used by examples/fit_inverse_opal.jl and
-# benchmark/fit_mpb_benchmark.jl, so that neither has to recompute it. Run **once**:
+# Computes & stores the MPB reference data (SG 225 inverse opal, cf.
+# examples/mpb_inverse_opal.jl; SG 221 crossed cylinders; SG 214 single gyroid) used by
+# examples/fit_inverse_opal.jl, examples/fit_single_gyroid.jl and
+# benchmark/fit_mpb_benchmark.jl, so that none of them has to recompute it. Run **once**:
 #
 #     julia benchmark/generate_mpb_data.jl
 #
@@ -13,8 +14,9 @@ using Pkg
 Pkg.activate(joinpath(dirname(@__DIR__), "examples"); io = devnull)
 
 using Crystalline
+using Crystalline: SVector
 using PhotonicTightBinding
-using PythonCall: pylist, pyconvert
+using PythonCall: pylist, pyconvert, pyfunc
 using Brillouin: irrfbz_path, interpolate
 using LinearAlgebra: norm
 using ProgressMeter: @showprogress
@@ -88,3 +90,49 @@ end
 writedlm(joinpath(datadir, "mpb_sg221_kvs.csv"), permutedims(reduce(hcat, collect(kvs221))), ',')
 writedlm(joinpath(datadir, "mpb_sg221_freqs.csv"), freqs221, ',')
 println("saved MPB reference to examples/data/ ($(length(kvs221)) k-points × $(size(freqs221, 2)) bands)")
+
+### third structure: single gyroid (ε = 16 network at 30% filling) in SG 214; the structure of
+# issue #1, and the hardest of the fitting cases — cf. examples/fit_single_gyroid.jl
+sgnum214 = 214
+Rs214′ = directbasis(sgnum214, Val(3))
+Rs214 = primitivize(Rs214′, centering(sgnum214))
+kvs214 = interpolate(irrfbz_path(sgnum214, Rs214′), 100)
+
+# the gyroid is a level-set surface rather than a union of primitives, so we hand MPB an
+# ε(r) callback instead of a `geometry` list
+uflat′ = levelsetlattice(sgnum214, Val(3), (1, 1, 1))
+deleteat!(uflat′.orbits, 1); deleteat!(uflat′.orbitcoefs, 1) # drop the constant term
+flat′ = modulate(uflat′, [-1/(4im)])
+flat = primitivize(flat′, centering(sgnum214))
+isoval = -0.6164538141029566 # = MPBUtils.filling2isoval(flat′, 0.30, 300), i.e. 30% filling
+epsin, epsout = 4^2, 1.0
+function epsilon_function(r)
+    xyz = SVector{3,Float64}(pyconvert(Float64, r.x), pyconvert(Float64, r.y),
+                             pyconvert(Float64, r.z))
+    return mp.Medium(epsilon = ifelse(flat(xyz) < isoval, epsin, epsout))
+end
+
+ms214 = mpb.ModeSolver(
+    num_bands        = 6,
+    k_points         = [],
+    default_material = pyfunc(epsilon_function),
+    geometry_lattice = mp.Lattice(basis_size = norm.(Rs214),
+                                  basis1 = Rs214[1], basis2 = Rs214[2], basis3 = Rs214[3]),
+    resolution       = 32,
+    tolerance        = 1e-6,
+)
+redirect_stdout(devnull) do
+    ms214.init_params(p = mp.NO_PARITY, reset_fields = true)
+end
+
+freqs214 = Matrix{Float64}(undef, length(kvs214), pyconvert(Int, ms214.num_bands))
+@showprogress 0.1 for (i, kv) in enumerate(kvs214)
+    redirect_stdout(devnull) do
+        ms214.solve_kpoint(mp.Vector3(kv...))
+    end
+    freqs214[i, :] = sort!(pyconvert(Vector{Float64}, ms214.get_freqs()))
+end
+
+writedlm(joinpath(datadir, "mpb_single_gyroid_kvs.csv"), permutedims(reduce(hcat, collect(kvs214))), ',')
+writedlm(joinpath(datadir, "mpb_single_gyroid_freqs.csv"), freqs214, ',')
+println("saved MPB reference to examples/data/ ($(length(kvs214)) k-points × $(size(freqs214, 2)) bands)")

@@ -158,13 +158,18 @@ band and per **k**-point, is less than `atol`.
     makes `E = 0` a genuine minimum rather than an asymptote, lowering the residual
     longitudinal energy by 2–3 orders of magnitude, at ~4–10× more iterations. Worth trying
     if a longitudinal band strays into the transverse manifold, where it can corrupt the
-    energy-ordered band assignment.
+    energy-ordered band assignment. Unlike `:hinge`, it responds to `longitudinal_weight`;
+    `λ = 1` is a reasonable starting point. Its stiffer gradient also deforms the search
+    landscape, so a *cold* `:strict` multi-start is markedly less reliable than a `:hinge`
+    one; prefer to fit with `:hinge` first and seed `:strict` from that result
+    (`init = ptbm_hinge.cs`), as in `examples/fit_single_gyroid.jl`.
   - `:zero` (`ψ = E²`): fits the longitudinal bands *to* zero, two-sided. Only advisable
     with a single longitudinal band; with several it over-constrains the model badly.
 - `longitudinal_width` (default, `1e-3`): the smoothing width `δ` of the `:strict` penalty,
   relative to the mean reference energy. Leakage scales as `δ`, while smaller `δ` costs
-  iterations; loosening it much beyond the default is only safe for easy problems. Unused by
-  the other penalties.
+  iterations, so it trades residual leakage against runtime — `1e-2` is often a good bargain
+  when the leakage merely has to stay well clear of the transverse bands. Unused by the other
+  penalties.
 - `optimizer` (default, `Optim.NewtonTrustRegion()`): a local optimizer from Optim.jl.
   First-order optimizers exploit the analytic (Feynman–Hellmann) gradient of the loss;
   second-order optimizers additionally exploit its Hessian, which is Gauss–Newton for the

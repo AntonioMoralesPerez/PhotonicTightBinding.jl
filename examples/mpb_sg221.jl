@@ -21,17 +21,23 @@ Rs = directbasis(sgnum, Val(3))
 R1 = 0.2 #cylinder radius
 N_BANDS = 6 # number of bands to compute
 mat = mp.Medium(; epsilon = 12)
-geometry = map([[0, 0, 1], [0, 1, 0], [1, 0, 0]]) do axis
-    mp.Cylinder(; radius = R1, center = [0, 0, 0], axis = axis, height = 1, material = mat)
+
+# either circular rods, or square-cross-section rods of equal filling fraction
+geometry_type = :cylinder # or `:block`
+geometry = if geometry_type == :cylinder
+    map([[0, 0, 1], [0, 1, 0], [1, 0, 0]]) do axis
+        mp.Cylinder(; radius = R1, center = [0, 0, 0], axis = axis, height = 1, material = mat)
+    end
+elseif geometry_type == :block
+    block_size = [R1*√π, R1*√π, 1e20]
+    [
+        mp.Block(center=[0,0,0], material=mat, size=block_size, e1 = [1,0,0], e2 = [0,1,0], e3 = [0,0,1]),
+        mp.Block(center=[0,0,0], material=mat, size=block_size, e1 = [0,1,0], e2 = [0,0,1], e3 = [1,0,0]),
+        mp.Block(center=[0,0,0], material=mat, size=block_size, e1 = [0,0,1], e2 = [1,0,0], e3 = [0,1,0]),
+    ]
+else
+    error(lazy"unknown `geometry_type = :$geometry_type`; must be `:cylinder` or `:block`")
 end
-# … or, alternatively, a set of square-cross-section rods of equal filling fraction (NB:
-# `block_size`, not `size`, since assigning to `size` would shadow `Base.size`)
-block_size = [R1*√π, R1*√π, 1e20]
-geometry = [
-    mp.Block(center=[0,0,0], material=mat, size=block_size, e1 = [1,0,0], e2 = [0,1,0], e3 = [0,0,1]),
-    mp.Block(center=[0,0,0], material=mat, size=block_size, e1 = [0,1,0], e2 = [0,0,1], e3 = [1,0,0]),
-    mp.Block(center=[0,0,0], material=mat, size=block_size, e1 = [0,0,1], e2 = [1,0,0], e3 = [0,1,0]),
-]
 
 # solve the system
 ms = mpb.ModeSolver(;
@@ -47,7 +53,6 @@ brs = primitivize(calc_bandreps(sgnum, Val(D))) # already primitive in SG 221, b
 symvecs, symeigsv = obtain_symmetry_vectors(ms, brs);
 
 nᵀ = symvecs[1] # pick the 2 lower bands which we are going to study
-#nᵀ = sum(symvecs) # include every considered band (6 bands here)
 μᵀ = nᵀ.occupation # number of transverse bands
 
 # obtain an EBR decomposition for the set of bands considered
@@ -100,7 +105,6 @@ ptbm_fit = photonic_fit(
     max_multistarts=15, verbose = true, lasso=1e-3
 )
 freqs_fit = spectrum(ptbm_fit, kvs; transform = energy2frequency)[:, μᴸ+1:end] # remove the longitudinal bands
-
 
 # ---------------------------------------------------------------------------------------- #
 # plot fitting results

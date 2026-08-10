@@ -10,23 +10,26 @@ using Crystalline
 
         # do some checks for interesting symmetry vectors
         s1 = "[-Γ₁⁺+3Γ₁⁻,2R₁⁻, 2T₁⁻, 2U₁⁻, V₁⁺+V₁⁻, X₁⁺+X₁⁻,Y₁⁺+Y₁⁻,2Z₁⁺]"
-        append!(ms, parse(SymmetryVector, s1, lgirsv))
+        push!(ms, parse(SymmetryVector, s1, lgirsv))
 
         s2 = "[-Γ₁⁺+3Γ₁⁻, 2R₁⁻, T₁⁺ + T₁⁻, U₁⁺ + U₁⁻, V₁⁺ + V₁⁻, 2X₁⁻, 2Y₁⁻, 2Z₁⁺]"
-        append!(ms, parse(SymmetryVector, s2, lgirsv))
+        push!(ms, parse(SymmetryVector, s2, lgirsv))
 
         s3 = "[-Γ₁⁺+3Γ₁⁻, R₁⁺+R₁⁻, T₁⁺ + T₁⁻, 2 U₁⁻, 2 V₁⁻, X₁⁺+X₁⁻, 2Y₁⁻, 2Z₁⁺]"
-        append!(ms, parse(SymmetryVector, s3, lgirsv))
+        push!(ms, parse(SymmetryVector, s3, lgirsv))
 
         s4 = "[-Γ₁⁺+3Γ₁⁻, R₁⁺+R₁⁻, 2 T₁⁻, U₁⁺ + U₁⁻, 2 V₁⁻, 2X₁⁻, Y₁⁺+Y₁⁻, 2Z₁⁺]"
-        append!(ms, parse(SymmetryVector, s4, lgirsv))
+        push!(ms, parse(SymmetryVector, s4, lgirsv))
 
         s5 = "[-Γ₁⁺+3Γ₁⁻, 2R₁⁻, T₁⁺ + T₁⁻, 2 U₁⁻, 2 V₁⁺, 2X₁⁻, Y₁⁺+Y₁⁻, Z₁⁺+Z₁⁻]"
-        append!(ms, parse(SymmetryVector, s5, lgirsv))
+        push!(ms, parse(SymmetryVector, s5, lgirsv))
 
-        for m in mv
-            for μᴸ in 1:8
-                brs = calc_bandreps(sgnum)
+        for m in ms
+            # `find_bandrep_decompositions` returns at the first μᴸ ≥ μᴸ_min admitting a
+            # decomposition, so each μᴸ below exercises a distinct number of longitudinal
+            # modes. The ceiling is purely a cost cap: for these vectors μᴸ = 3 is ~30×
+            # slower than μᴸ = 2, and μᴸ = 4 takes ~8 min apiece.
+            for μᴸ in 1:2
                 candidatesv = find_bandrep_decompositions(m, brs; μᴸ_min = μᴸ)
 
                 # we should find at least one decomposition
@@ -54,7 +57,7 @@ using Crystalline
                     # the decompositions should be physical 
                     @test !isnothing(candidates.ps)
                     for p in candidates.ps
-                        @test isinteger.(p)
+                        @test all(isinteger, p)
                     end
                 end
             end

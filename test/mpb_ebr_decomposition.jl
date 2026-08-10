@@ -40,18 +40,20 @@ using Crystalline # for calc_bandreps
                 basis3 = [0, 0, 1],
                 size = [1, 1, 1],
             ),
-            geometry = geometry,
+            geometry = pylist(geometry), # must be a genuine `list`; mpb aborts otherwise
             resolution = 16,
         )
         ms.init_params(; p = mp.ALL, reset_fields = true)
 
-        # obtain the symmetry vectors of the bands computed above
+        # obtain the symmetry vectors of the bands computed above; `brs` is shared with the
+        # decomposition below, whose `m` must be built against this very collection
         sgnum = 221
-        symvecs, topologies = obtain_symmetry_vectors(ms, sgnum)
+        brs = primitivize(calc_bandreps(sgnum, Val(3)))
+        symvecs, topologies = obtain_symmetry_vectors(ms, brs)
 
         for m in symvecs
-            for μᴸ in 1:8
-                brs = calc_bandreps(sgnum)
+            # cf. the μᴸ note in `ebr_decomposition.jl`
+            for μᴸ in 1:2
                 candidatesv = find_bandrep_decompositions(m, brs; μᴸ_min = μᴸ)
 
                 # we should find at least one decomposition
@@ -79,7 +81,7 @@ using Crystalline # for calc_bandreps
                     # the decompositions should be physical 
                     @test !isnothing(candidates.ps)
                     for p in candidates.ps
-                        @test isinteger.(p)
+                        @test all(isinteger, p)
                     end
                 end
             end

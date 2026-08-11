@@ -5,25 +5,25 @@ using Crystalline # for calc_bandreps
     @testset "SG #221" begin
 
         # construct the structure under study
-        R1 = 0.2 # cylinder radius
+        R = 0.2 # cylinder radius
         mat = mp.Medium(; epsilon = 12)
         geometry = [
             mp.Cylinder(;
-                radius = R1,
+                radius = R,
                 center = [0, 0, 0],
                 axis = [0, 0, 1],
                 height = 1,
                 material = mat,
             ),
             mp.Cylinder(;
-                radius = R1,
+                radius = R,
                 center = [0, 0, 0],
                 axis = [0, 1, 0],
                 height = 1,
                 material = mat,
             ),
             mp.Cylinder(;
-                radius = R1,
+                radius = R,
                 center = [0, 0, 0],
                 axis = [1, 0, 0],
                 height = 1,
@@ -46,35 +46,32 @@ using Crystalline # for calc_bandreps
         ms.init_params(; p = mp.ALL, reset_fields = true)
 
         # obtain the symmetry vectors of the bands computed above; `brs` is shared with the
-        # decomposition below, whose `m` must be built against this very collection
+        # decomposition below, whose `n` must be built against this collection
         sgnum = 221
         brs = primitivize(calc_bandreps(sgnum, Val(3)))
-        symvecs, topologies = obtain_symmetry_vectors(ms, brs)
+        ns, topos = obtain_symmetry_vectors(ms, brs)
 
-        for m in symvecs
-            # cf. the μᴸ note in `ebr_decomposition.jl`
-            for μᴸ in 1:2
-                candidatesv = find_bandrep_decompositions(m, brs; μᴸ_min = μᴸ)
+        for n in ns
+            for μᴸ in 1:2 # limited range cf. cost (see μᴸ note in `ebr_decomposition.jl`)
+                candidatesv = find_bandrep_decompositions(n, brs; μᴸ_min = μᴸ)
 
                 # we should find at least one decomposition
                 isempty(candidatesv) && continue
 
                 for candidates in candidatesv
-
                     # the decomposition should match the symmetry vector
                     @test !isnothing(candidates.longitudinal)
                     @test !isnothing(candidates.apolarv)
 
                     for nᵀ⁺ᴸ in candidates.apolarv
-                        vᵀ = SymmetryVector(nᵀ⁺ᴸ - candidates.longitudinal) # SymVec of nᵀ
+                        nᵀ = SymmetryVector(nᵀ⁺ᴸ - candidates.longitudinal) # SymVec of nᵀ
 
-                        @test occupation(m) == occupation(vᵀ)
-                        @test irreps(m) == irreps(vᵀ)
+                        @test occupation(n) == occupation(nᵀ)
+                        @test irreps(n) == irreps(nᵀ)
 
-                        for (i, mult) in enumerate(multiplicities(m))
-                            klabel(irreps(m)[i][1]) == "Γ" && continue
-
-                            @test mult == multiplicities(vᵀ)[i]
+                        for (i, mult) in enumerate(multiplicities(n))
+                            klabel(irreps(n)[i][1]) == "Γ" && continue
+                            @test mult == multiplicities(nᵀ)[i]
                         end
                     end
 

@@ -6,31 +6,31 @@ using Crystalline
         sgnum, D = 2, 3
         brs = calc_bandreps(sgnum, Val(D))
         lgirsv = irreps(brs)
-        ms = SymmetryVector{D}[]
+        ns = SymmetryVector{D}[]
 
         # do some checks for interesting symmetry vectors
         s1 = "[-Γ₁⁺+3Γ₁⁻,2R₁⁻, 2T₁⁻, 2U₁⁻, V₁⁺+V₁⁻, X₁⁺+X₁⁻,Y₁⁺+Y₁⁻,2Z₁⁺]"
-        push!(ms, parse(SymmetryVector, s1, lgirsv))
+        push!(ns, parse(SymmetryVector, s1, lgirsv))
 
         s2 = "[-Γ₁⁺+3Γ₁⁻, 2R₁⁻, T₁⁺ + T₁⁻, U₁⁺ + U₁⁻, V₁⁺ + V₁⁻, 2X₁⁻, 2Y₁⁻, 2Z₁⁺]"
-        push!(ms, parse(SymmetryVector, s2, lgirsv))
+        push!(ns, parse(SymmetryVector, s2, lgirsv))
 
         s3 = "[-Γ₁⁺+3Γ₁⁻, R₁⁺+R₁⁻, T₁⁺ + T₁⁻, 2 U₁⁻, 2 V₁⁻, X₁⁺+X₁⁻, 2Y₁⁻, 2Z₁⁺]"
-        push!(ms, parse(SymmetryVector, s3, lgirsv))
+        push!(ns, parse(SymmetryVector, s3, lgirsv))
 
         s4 = "[-Γ₁⁺+3Γ₁⁻, R₁⁺+R₁⁻, 2 T₁⁻, U₁⁺ + U₁⁻, 2 V₁⁻, 2X₁⁻, Y₁⁺+Y₁⁻, 2Z₁⁺]"
-        push!(ms, parse(SymmetryVector, s4, lgirsv))
+        push!(ns, parse(SymmetryVector, s4, lgirsv))
 
         s5 = "[-Γ₁⁺+3Γ₁⁻, 2R₁⁻, T₁⁺ + T₁⁻, 2 U₁⁻, 2 V₁⁺, 2X₁⁻, Y₁⁺+Y₁⁻, Z₁⁺+Z₁⁻]"
-        push!(ms, parse(SymmetryVector, s5, lgirsv))
+        push!(ns, parse(SymmetryVector, s5, lgirsv))
 
-        for m in ms
+        for n in ns
             # `find_bandrep_decompositions` returns at the first μᴸ ≥ μᴸ_min admitting a
             # decomposition, so each μᴸ below exercises a distinct number of longitudinal
             # modes. The ceiling is purely a cost cap: for these vectors μᴸ = 3 is ~30×
             # slower than μᴸ = 2, and μᴸ = 4 takes ~8 min apiece.
             for μᴸ in 1:2
-                candidatesv = find_bandrep_decompositions(m, brs; μᴸ_min = μᴸ)
+                candidatesv = find_bandrep_decompositions(n, brs; μᴸ_min = μᴸ)
 
                 # we should find at least one decomposition
                 isempty(candidatesv) && continue
@@ -44,11 +44,11 @@ using Crystalline
                     for nᵀ⁺ᴸ in candidates.apolarv
                         vᵀ = SymmetryVector(nᵀ⁺ᴸ - candidates.longitudinal) # SymVec of nᵀ
 
-                        @test occupation(m) == occupation(vᵀ)
-                        @test irreps(m) == irreps(vᵀ)
+                        @test occupation(n) == occupation(vᵀ)
+                        @test irreps(n) == irreps(vᵀ)
 
-                        for (i, mult) in enumerate(multiplicities(m))
-                            klabel(irreps(m)[i][1]) == "Γ" && continue
+                        for (i, mult) in enumerate(multiplicities(n))
+                            klabel(irreps(n)[i][1]) == "Γ" && continue
 
                             @test mult == multiplicities(vᵀ)[i]
                         end

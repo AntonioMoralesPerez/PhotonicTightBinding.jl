@@ -21,9 +21,9 @@ jobs:
         version:
           - '1.12'    # minimum supported version
           - '1'       # latest release
+        # linux only: `pynormaliz` (via SymmetryBases) has no osx-arm64 or win-64 conda build
         os:
           - ubuntu-latest
-          - macos-latest
     steps:
       - uses: actions/checkout@v4
       - uses: julia-actions/setup-julia@v2

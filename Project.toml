@@ -21,7 +21,7 @@ SymmetricTightBinding = {rev = "main", url = "https://github.com/CrystallineOrg/
 SymmetryBases = {rev = "master", url = "https://github.com/thchr/SymmetryBases.jl"}
 
 [compat]
-Crystalline = "0.6.25"
+Crystalline = "0.6.27"
 LinearAlgebra = "1.11.0"
 MPBUtils = "0.2.2"
 Optim = "2"

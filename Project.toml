@@ -29,7 +29,7 @@ PhotonicBandConnectivity = "0.5"
 PythonCall = "0.9.24"
 Reexport = "1"
 SymmetricTightBinding = "0.1.4"
-julia = "1.11"
+julia = "1.12"
 
 [extras]
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"

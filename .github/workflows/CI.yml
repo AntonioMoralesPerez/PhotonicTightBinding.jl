@@ -30,11 +30,6 @@ jobs:
         with:
           version: ${{ matrix.version }}
       - uses: julia-actions/cache@v2
-      # `pymeep` is pulled in through MPBUtils via CondaPkg; installing it cold takes minutes
-      - uses: actions/cache@v4
-        with:
-          path: .CondaPkg
-          key: condapkg-${{ runner.os }}-${{ hashFiles('Project.toml') }}
       - uses: julia-actions/julia-buildpkg@v1
       - uses: julia-actions/julia-runtest@v1
       - uses: julia-actions/julia-processcoverage@v1

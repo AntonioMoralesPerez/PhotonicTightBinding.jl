@@ -62,20 +62,24 @@ end
 # photonic loss, its gradient, and its Gauss–Newton Hessian, following the calling
 # convention of `SymmetricTightBinding.make_fit_objective`: with sorted model energies `Es`
 # split as `Esᴸ = Es[1:μᴸ]` (longitudinal) & `Esᵀ = Es[μᴸ+1:end]` (transverse),
-#   F = ∑ₖ [ ∑ₙ (Eₙʳ − Eₙᵀ)² + λ ∑ₗ ψ(Eₗᴸ) ]  (+ optional LASSO term),
+#   F = ∑ₖ [ ∑ₙ wₖₙ (Eₙʳ − Eₙᵀ)² + λ ∑ₗ ψ(Eₗᴸ) ]  (+ optional LASSO term),
 # i.e., least-squares matching of the transverse bands to the reference plus a penalty ψ
 # pushing the longitudinal bands toward zero/imaginary frequency (see above). The transverse
-# term is a squared residual, contributing the Gauss–Newton Hessian `2∑∇E∇Eᵀ`; the
-# longitudinal term contributes its exact curvature `λ∑ψ″∇E∇Eᵀ`.
+# term is a squared residual, contributing the Gauss–Newton Hessian `2∑w∇E∇Eᵀ`; the
+# longitudinal term contributes its exact curvature `λ∑ψ″∇E∇Eᵀ`. The per-entry weights
+# `wₖₙ = weights[κ,n]` default to unity. A zero weight drops its reference point from F, G,
+# and H alike. The longitudinal term is unweighted, having no reference data.
 function photonic_fgh!(
     F, G, H, cs, cache::TightBindingCache, Em_r, μᴸ::Integer;
     λ::Real = 1, lasso::Union{Nothing,Real} = nothing,
-    penalty::Val = Val(:hinge), δ::Real = 0.0
+    penalty::Val = Val(:hinge), δ::Real = 0.0,
+    weights::AbstractMatrix{<:Real} = ones(size(Em_r))
 )
     isnothing(G) || fill!(G, zero(eltype(G)))
     isnothing(H) || fill!(H, zero(eltype(H)))
 
     for (κ, Es_r) in enumerate(eachrow(Em_r))
+        ws = @view weights[κ, :]
         Hₖ = cache(cs, κ) # assembled into `cache`'s work array (mutated by eigen below)
         if isnothing(G) && isnothing(H)
             # fast-path, avoiding eigenvector eval. if this is a residuals-only calculation
@@ -89,7 +93,8 @@ function photonic_fgh!(
 
         # photonic loss
         if !isnothing(F)
-            F += sum(abs2∘splat(-), zip(Es_r, Esᵀ); init = zero(F))          # transverse
+            F += sum(splat((w, E_r, E) -> w * abs2(E_r - E)),
+                     zip(ws, Es_r, Esᵀ); init = zero(F))                     # transverse
             F += λ * sum(E -> _longitudinal_penalty(penalty, E, δ)[1], Esᴸ;
                          init = zero(F))                                     # longitudinal
         end
@@ -99,9 +104,10 @@ function photonic_fgh!(
             ∇Es = energy_gradient_wrt_hopping(cache, κ, (Es, us))
             ∇Esᴸ = @view ∇Es[1:μᴸ]
             ∇Esᵀ = @view ∇Es[μᴸ+1:end]
-            for (E_r, E, ∇E) in zip(Es_r, Esᵀ, ∇Esᵀ) # transverse
-                isnothing(G) || (G .+= (-2 * (E_r - E)) .* ∇E)
-                isnothing(H) || (H .+= 2 .* ∇E .* ∇E')
+            for (w, E_r, E, ∇E) in zip(ws, Es_r, Esᵀ, ∇Esᵀ) # transverse
+                iszero(w) && continue
+                isnothing(G) || (G .+= (-2w * (E_r - E)) .* ∇E)
+                isnothing(H) || (H .+= 2w .* ∇E .* ∇E')
             end
             for (E, ∇E) in zip(Esᴸ, ∇Esᴸ)            # longitudinal
                 _, ψ′, ψ″ = _longitudinal_penalty(penalty, E, δ)
@@ -115,6 +121,7 @@ function photonic_fgh!(
     if !isnothing(lasso)
         lasso *= size(Em_r, 1) # rescaling `lasso` weight to ensure relative contributions
                                # of LSE vs LASSO are invariant to number of k-points
+                               # (deliberately independent of `weights`)
         !isnothing(F) && (F += lasso * sum(abs, cs))
         !isnothing(G) && (G .+= lasso .* sign.(cs))
     end
@@ -141,7 +148,8 @@ Fitting is performed using a local optimizer (configurable via `optimizer` from 
 used as the basis of a moment-seeded, basin-hopping multi-start global optimization — the
 machinery of `SymmetricTightBinding.fit` & `SymmetricTightBinding.multistart_fit`, reused
 here with the photonic loss. The global search returns early if the mean fit error, per
-band and per **k**-point, is less than `atol`.
+band and per **k**-point (counting only reference points of nonzero `weights`), is less
+than `atol`.
 
 ## Keyword arguments
 - `longitudinal_weight` (default, `$DEFAULT_LONGITUDINAL_WEIGHT`): a weighting factor `λ`
@@ -181,7 +189,14 @@ band and per **k**-point, is less than `atol`.
   mean energetic error (averaged over bands and **k**-points).
 - `lasso` (default, `nothing`): if set to a positive number, applies a LASSO penalty to the
   hopping amplitudes, encouraging model sparsity (i.e., small hopping amplitudes to
-  vanish). Setting to `nothing` disables the LASSO penalty.
+  vanish). Setting to `nothing` disables the LASSO penalty. Its internal rescaling with the
+  number of **k**-points is unaffected by `weights`.
+- `weights` (default, `ones(size(freqs_r))`): a matrix of weights `w[i,n] ≥ 0`, of the same
+  size as `freqs_r`, multiplying the residual of each reference point `freqs_r[i,n]` in the
+  loss (and its gradient and Hessian contributions). Chiefly useful as a 0/1 mask when the
+  reference bands are not isolated and only part of the spectrum is reliably identified, but
+  also for assigning more importance to certain bands and **k**-points than others. The
+  longitudinal penalty is unweighted.
 - `objective_callback` (default, `nothing`): if set to a function, it is called as
   `objective_callback(F, G, H, cs)` immediately before every objective evaluation, with the
   same arguments the objective receives (`G`/`H` are `nothing` when the optimizer requests
@@ -210,6 +225,7 @@ function photonic_fit(
     longitudinal_penalty::Symbol = :hinge,
     longitudinal_width::Real = 1e-3,
     lasso::Union{Nothing,Real} = nothing,
+    weights::AbstractMatrix{<:Real} = ones(size(freqs_r)),
     objective_callback::Union{Nothing,Function} = nothing,
     options::Optim.Options = Optim.Options(;
         g_abstol = 5e-3,
@@ -218,9 +234,18 @@ function photonic_fit(
     kws..., # remaining kwargs (`max_multistarts`, `restart_every`, `verbose`, `polish`,
             # `init`, …) are forwarded to `SymmetricTightBinding.multistart_fit`
 ) where D
-    # convert frequencies to energies and sort them
+    size(weights) == size(freqs_r) ||
+        error(lazy"`weights` must match the size of `freqs_r` ($(size(weights)) ≠ $(size(freqs_r)))")
+    # convert frequencies to energies and sort them. `eigen` returns sorted energies, so each
+    # reference row must match — and `weights`, attached to the bands as given, follows the
+    # same permutation (hence `sortperm`, not `sort!`, should be used)
     Em_r = freqs_r .^ 2
-    sort!(Em_r; dims = 2)
+    weights = collect(float(weights)) # a copy: permuted in-place below
+    for (Es_r, w_r) in zip(eachrow(Em_r), eachrow(weights))
+        p = sortperm(Es_r)
+        Es_r .= Es_r[p]
+        w_r .= w_r[p]
+    end
 
     μᴸ = tbm.N - size(Em_r, 2) # number of longitudinal bands
     μᴸ ≥ 0 || error(lazy"model has fewer bands ($(tbm.N)) than the reference ($(size(Em_r, 2)))")
@@ -237,13 +262,15 @@ function photonic_fit(
     cache = TightBindingCache(tbm, ks) # hᵢ(k) tabulated once, shared by objective & moments
     obj = make_fit_objective() do F, G, H, cs
         isnothing(objective_callback) || objective_callback(F, G, H, cs)
-        photonic_fgh!(F, G, H, cs, cache, Em_r, μᴸ; λ, lasso, penalty, δ)
+        photonic_fgh!(F, G, H, cs, cache, Em_r, μᴸ; λ, lasso, penalty, δ, weights)
     end
     # moment seeding from the transverse reference alone: the longitudinal bands are absent
     # from `Em_r`, so the trace fit `c₀` & scales are biased slightly high — but since the
     # longitudinal target is merely E ≤ 0, they remain apt seeding heuristics
     moments = spectralmoments(cache, Em_r)
-    tol = length(ks) * size(Em_r, 2) * atol^2 # sum of absolute squares tolerance
+    # sum of absolute squares tolerance, taken over the reference points the loss actually
+    # sees, so that `atol` keeps its per-band, per-k-point meaning under masking
+    tol = count(!iszero, weights) * atol^2
     best_cs, _ = multistart_fit(obj, moments; optimizer, tol, options, kws...)
     return tbm(best_cs)
 end

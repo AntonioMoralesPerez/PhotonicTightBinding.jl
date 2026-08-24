@@ -1,5 +1,6 @@
 using PhotonicTightBinding, Test
 using Crystalline
+using PhotonicTightBinding: PhotonicBandConnectivity as PBC
 
 @testset "EBR decomposition" begin
     @testset "SG #2" begin
@@ -63,4 +64,33 @@ using Crystalline
             end
         end
     end # SG 2
+
+    @testset "transverse solutions from PhotonicBandConnectivity" begin
+        # `transverse_symmetry_vectors` w/ its default `separate_vrep = true` returns
+        # vectors carrying a synthetic virtual irrep at Γ, which
+        # `find_bandrep_decompositions` rejects with an informative error; the vrep-free
+        # `separate_vrep = false` form must decompose fine
+
+        # SG 1
+        brs = calc_bandreps(1, Val(3))
+        m_t = PBC.transverse_symmetry_vectors(1, Val(3))[1] # μᵀ = 2 solution
+        m_f = PBC.transverse_symmetry_vectors(1, Val(3); separate_vrep = false)[1]
+        @test_throws "virtual irrep at Γ" find_bandrep_decompositions(m_t, brs)
+        c = only(find_bandrep_decompositions(m_f, brs))
+        @test iszero(occupation(c.longitudinal)) # μᴸ = 0
+        @test only(c.apolarv).coefs == [2]       # 2(1a|A)
+
+        # SG 2 (centrosymmetric; exercises the unpinned Γ-irrep path at ω=0)
+        brs = calc_bandreps(2, Val(3))
+        sols_t = PBC.transverse_symmetry_vectors(2, Val(3))
+        sols_f = PBC.transverse_symmetry_vectors(2, Val(3); separate_vrep = false)
+        # pick a solution (by content, as sort order may vary) that decomposes at μᴸ = 1
+        s = "[2Z₁⁺, 2Y₁⁺, 2U₁⁻, X₁⁺+X₁⁻, T₁⁺+T₁⁻, -Γ₁⁺+3Γ₁⁻, 2V₁⁺, R₁⁺+R₁⁻]"
+        n_ref = parse(SymmetryVector, s, irreps(brs))
+        i = something(findfirst(n -> multiplicities(n) == multiplicities(n_ref), sols_f))
+        @test_throws "virtual irrep at Γ" find_bandrep_decompositions(sols_t[i], brs)
+        cv_f = find_bandrep_decompositions(sols_f[i], brs; μᴸ_max = 1)
+        @test !isempty(cv_f)
+        @test all(all(isinteger, p) for c in cv_f for p in c.ps)
+    end # transverse solutions from PhotonicBandConnectivity
 end # EBR decomposition

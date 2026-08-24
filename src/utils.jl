@@ -205,6 +205,9 @@ function find_apolar_modes(
     # compute the fixed part `n_fixed` and the free part `Q` of the physical ω=0 irreps at Γ
     Γ_idx = something(findfirst(==("Γ"), klabels(m)))
     lgirs = irreps(m)[Γ_idx]
+    any(is_vrep, lgirs) && error("""the symmetry vector `m` contains a synthetic virtual \
+            irrep at Γ, which is not supported; if `m` was obtained from \
+            `transverse_symmetry_vectors`, recompute it with `separate_vrep = false`""")
 
     n_fixed, Q = physical_zero_frequency_gamma_irreps_O3(lgirs)
 

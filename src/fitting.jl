@@ -195,11 +195,10 @@ than `atol`.
   number of **k**-points is unaffected by `weights`.
 - `weights` (default, `nothing`): a matrix of weights `w[i,n] ≥ 0`, of the same size as
   `freqs_r`, multiplying the residual of each reference point `freqs_r[i,n]` in the loss
-  (and its gradient and Hessian contributions). `nothing` weighs every reference point
-  equally. Chiefly useful as a 0/1 mask when the reference bands are not
-  isolated and only part of the spectrum is reliably identified, but also for assigning
-  more importance to certain bands and **k**-points than others. The longitudinal penalty
-  is unweighted.
+  `nothing` weighs every reference point equally. E.g., useful as a bitmask when the
+  reference bands are not isolated and only part of the spectrum is reliably identified, or for
+  assigning more importance to certain bands and **k**-points than others. The longitudinal
+  penalty is unweighted.
 - `objective_callback` (default, `nothing`): if set to a function, it is called as
   `objective_callback(F, G, H, cs)` immediately before every objective evaluation, with the
   same arguments the objective receives (`G`/`H` are `nothing` when the optimizer requests

@@ -67,19 +67,21 @@ end
 # pushing the longitudinal bands toward zero/imaginary frequency (see above). The transverse
 # term is a squared residual, contributing the Gauss–Newton Hessian `2∑w∇E∇Eᵀ`; the
 # longitudinal term contributes its exact curvature `λ∑ψ″∇E∇Eᵀ`. The per-entry weights
-# `wₖₙ = weights[κ,n]` default to unity. A zero weight drops its reference point from F, G,
-# and H alike. The longitudinal term is unweighted, having no reference data.
+# `wₖₙ = weights[κ,n]` default to unity (`weights = nothing`). A zero weight drops its
+# reference point from F, G, and H alike. The longitudinal term is unweighted, having no
+# reference data. Since the method specializes on the type of `weights`, the `nothing` case
+# compiles to the unweighted loss exactly: the feature is free when unused.
 function photonic_fgh!(
     F, G, H, cs, cache::TightBindingCache, Em_r, μᴸ::Integer;
     λ::Real = 1, lasso::Union{Nothing,Real} = nothing,
     penalty::Val = Val(:hinge), δ::Real = 0.0,
-    weights::AbstractMatrix{<:Real} = ones(size(Em_r))
+    weights::Union{Nothing,AbstractMatrix{<:Real}} = nothing
 )
     isnothing(G) || fill!(G, zero(eltype(G)))
     isnothing(H) || fill!(H, zero(eltype(H)))
 
     for (κ, Es_r) in enumerate(eachrow(Em_r))
-        ws = @view weights[κ, :]
+        ws = isnothing(weights) ? Iterators.repeated(true) : @view weights[κ, :]
         Hₖ = cache(cs, κ) # assembled into `cache`'s work array (mutated by eigen below)
         if isnothing(G) && isnothing(H)
             # fast-path, avoiding eigenvector eval. if this is a residuals-only calculation
@@ -191,12 +193,13 @@ than `atol`.
   hopping amplitudes, encouraging model sparsity (i.e., small hopping amplitudes to
   vanish). Setting to `nothing` disables the LASSO penalty. Its internal rescaling with the
   number of **k**-points is unaffected by `weights`.
-- `weights` (default, `ones(size(freqs_r))`): a matrix of weights `w[i,n] ≥ 0`, of the same
-  size as `freqs_r`, multiplying the residual of each reference point `freqs_r[i,n]` in the
-  loss (and its gradient and Hessian contributions). Chiefly useful as a 0/1 mask when the
-  reference bands are not isolated and only part of the spectrum is reliably identified, but
-  also for assigning more importance to certain bands and **k**-points than others. The
-  longitudinal penalty is unweighted.
+- `weights` (default, `nothing`): a matrix of weights `w[i,n] ≥ 0`, of the same size as
+  `freqs_r`, multiplying the residual of each reference point `freqs_r[i,n]` in the loss
+  (and its gradient and Hessian contributions). `nothing` weighs every reference point
+  equally. Chiefly useful as a 0/1 mask when the reference bands are not
+  isolated and only part of the spectrum is reliably identified, but also for assigning
+  more importance to certain bands and **k**-points than others. The longitudinal penalty
+  is unweighted.
 - `objective_callback` (default, `nothing`): if set to a function, it is called as
   `objective_callback(F, G, H, cs)` immediately before every objective evaluation, with the
   same arguments the objective receives (`G`/`H` are `nothing` when the optimizer requests
@@ -225,7 +228,7 @@ function photonic_fit(
     longitudinal_penalty::Symbol = :hinge,
     longitudinal_width::Real = 1e-3,
     lasso::Union{Nothing,Real} = nothing,
-    weights::AbstractMatrix{<:Real} = ones(size(freqs_r)),
+    weights::Union{Nothing,AbstractMatrix{<:Real}} = nothing,
     objective_callback::Union{Nothing,Function} = nothing,
     options::Optim.Options = Optim.Options(;
         g_abstol = 5e-3,
@@ -234,17 +237,21 @@ function photonic_fit(
     kws..., # remaining kwargs (`max_multistarts`, `restart_every`, `verbose`, `polish`,
             # `init`, …) are forwarded to `SymmetricTightBinding.multistart_fit`
 ) where D
-    size(weights) == size(freqs_r) ||
-        error(lazy"`weights` must match the size of `freqs_r` ($(size(weights)) ≠ $(size(freqs_r)))")
     # convert frequencies to energies and sort them. `eigen` returns sorted energies, so each
-    # reference row must match — and `weights`, attached to the bands as given, follows the
-    # same permutation (hence `sortperm`, not `sort!`, should be used)
+    # reference row must match — and `weights`, if given, is attached to the bands as given
+    # and must follow the same permutation (hence `sortperm`, not `sort!`, should be used)
     Em_r = freqs_r .^ 2
-    weights = collect(float(weights)) # a copy: permuted in-place below
-    for (Es_r, w_r) in zip(eachrow(Em_r), eachrow(weights))
-        p = sortperm(Es_r)
-        Es_r .= Es_r[p]
-        w_r .= w_r[p]
+    if isnothing(weights)
+        sort!(Em_r; dims = 2)
+    else
+        size(weights) == size(freqs_r) ||
+            error(lazy"`weights` must match the size of `freqs_r` ($(size(weights)) ≠ $(size(freqs_r)))")
+        weights = collect(float(weights)) # a copy: permuted in-place below
+        for (Es_r, w_r) in zip(eachrow(Em_r), eachrow(weights))
+            p = sortperm(Es_r)
+            Es_r .= Es_r[p]
+            w_r .= w_r[p]
+        end
     end
 
     μᴸ = tbm.N - size(Em_r, 2) # number of longitudinal bands
@@ -270,7 +277,7 @@ function photonic_fit(
     moments = spectralmoments(cache, Em_r)
     # sum of absolute squares tolerance, taken over the reference points the loss actually
     # sees, so that `atol` keeps its per-band, per-k-point meaning under masking
-    tol = count(!iszero, weights) * atol^2
+    tol = (isnothing(weights) ? length(Em_r) : count(!iszero, weights)) * atol^2
     best_cs, _ = multistart_fit(obj, moments; optimizer, tol, options, kws...)
     return tbm(best_cs)
 end

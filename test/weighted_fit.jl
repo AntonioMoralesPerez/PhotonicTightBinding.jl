@@ -21,19 +21,24 @@ using PhotonicTightBinding: TightBindingCache, photonic_fgh!
     Em_r = sort!(abs.(randn(length(kvs), μᵀ)); dims = 2)
     css = [randn(length(tbm)) for _ in 1:5]
 
-    fgh(cs, weights = ones(size(Em_r))) =
+    fgh(cs, weights = nothing) =
         let G = zeros(length(cs)), H = zeros(length(cs), length(cs))
             F = photonic_fgh!(0.0, G, H, cs, cache, Em_r, μᴸ; weights)
             (F, G, H)
         end
 
-    # unit weights reproduce the plain least-squares loss, recomputed here from the model
-    # spectrum (`photonic_fgh!` defaults: λ = 1, `:hinge` longitudinal penalty)
+    # the default `weights = nothing` reproduces the plain least-squares loss, recomputed
+    # here from the model spectrum (`photonic_fgh!` defaults: λ = 1, `:hinge` penalty),
+    # and unit weights match it exactly — `nothing` and `ones` are distinct code paths
     for cs in css
-        F, _, _ = fgh(cs)
+        F, G, H = fgh(cs)
         Es = spectrum(tbm(cs), kvs)
         @test F ≈ sum(abs2, Es[:, (μᴸ+1):end] .- Em_r) +
                   sum(E -> max(E, 0)^2, Es[:, 1:μᴸ])
+        Fw, Gw, Hw = fgh(cs, ones(size(Em_r)))
+        @test Fw == F
+        @test Gw == G
+        @test Hw == H
     end
 
     # F, G & H are exactly linear in `weights`: the longitudinal contribution carries no

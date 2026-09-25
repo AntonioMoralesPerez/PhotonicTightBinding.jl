@@ -5,13 +5,12 @@ using PhotonicTightBinding: PhotonicBandConnectivity as PBC
 @testset "EBR decomposition" begin
     @testset "SG #2" begin
         sgnum, D = 2, 3
-        brs = calc_bandreps(sgnum, Val(D))
+        brs = bandreps(sgnum, Val(D))
         lgirsv = irreps(brs)
-        ns = SymmetryVector{D}[]
 
         # do some checks for interesting symmetry vectors
         s1 = "[-Γ₁⁺+3Γ₁⁻,2R₁⁻, 2T₁⁻, 2U₁⁻, V₁⁺+V₁⁻, X₁⁺+X₁⁻,Y₁⁺+Y₁⁻,2Z₁⁺]"
-        push!(ns, parse(SymmetryVector, s1, lgirsv))
+        ns = [parse(SymmetryVector, s1, lgirsv)]
 
         s2 = "[-Γ₁⁺+3Γ₁⁻, 2R₁⁻, T₁⁺ + T₁⁻, U₁⁺ + U₁⁻, V₁⁺ + V₁⁻, 2X₁⁻, 2Y₁⁻, 2Z₁⁺]"
         push!(ns, parse(SymmetryVector, s2, lgirsv))
@@ -72,7 +71,7 @@ using PhotonicTightBinding: PhotonicBandConnectivity as PBC
         # `separate_vrep = false` form must decompose fine
 
         # SG 1
-        brs = calc_bandreps(1, Val(3))
+        brs = bandreps(1, Val(3))
         m_t = PBC.transverse_symmetry_vectors(1, Val(3))[1] # μᵀ = 2 solution
         m_f = PBC.transverse_symmetry_vectors(1, Val(3); separate_vrep = false)[1]
         @test_throws "virtual irrep at Γ" find_bandrep_decompositions(m_t, brs)
@@ -81,7 +80,7 @@ using PhotonicTightBinding: PhotonicBandConnectivity as PBC
         @test only(c.apolarv).coefs == [2]       # 2(1a|A)
 
         # SG 2 (centrosymmetric; exercises the unpinned Γ-irrep path at ω=0)
-        brs = calc_bandreps(2, Val(3))
+        brs = bandreps(2, Val(3))
         sols_t = PBC.transverse_symmetry_vectors(2, Val(3))
         sols_f = PBC.transverse_symmetry_vectors(2, Val(3); separate_vrep = false)
         # pick a solution (by content, as sort order may vary) that decomposes at μᴸ = 1

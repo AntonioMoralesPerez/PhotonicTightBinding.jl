@@ -15,7 +15,7 @@ using Statistics: mean
 
     sgnum = 214
     Rm = stack(primitivize(directbasis(sgnum, Val(3)), centering(sgnum)))
-    cbrs = calc_bandreps(sgnum, Val(3))
+    cbrs = bandreps(sgnum, Val(3))
     cbr = @composite cbrs[6] # (12c|B₁)
 
     _tbm = tb_hamiltonian(cbr, [[0, 0, 0], [0, 0, 1], [1, 1, 0], [1, 1, 1], [1, 0, 0]])

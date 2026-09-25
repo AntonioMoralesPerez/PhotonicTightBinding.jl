@@ -48,7 +48,7 @@ kvs_stored = eachrow(readdlm(joinpath(@__DIR__, "data", "mpb_inverse_opal_kvs.cs
 # the two lowest photonic bands of this structure transform as the (8a|T₂) EBR, less the
 # longitudinal modes; cf. the symmetry analysis in `mpb_inverse_opal.jl`, which we take as
 # given here
-cbrs = calc_bandreps(sgnum, Val(3))
+cbrs = bandreps(sgnum, Val(3))
 cbr = @composite cbrs[12] # (8a|T₂)
 
 # hoppings out to a handful of neighbour shells. Sorting the terms by physical hopping

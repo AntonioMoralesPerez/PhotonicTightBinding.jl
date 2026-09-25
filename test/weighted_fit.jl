@@ -7,7 +7,7 @@ using PhotonicTightBinding: TightBindingCache, photonic_fgh!
 # reference. The loss checks go through the `fgh!` closure directly, so that they are exact
 # and deterministic; only the sorting/alignment check needs a full `photonic_fit`.
 @testset "photonic fit: per-entry weights" begin
-    cbrs = calc_bandreps(2, Val(2))
+    cbrs = bandreps(2, Val(2))
     cbr = @composite cbrs[3] + cbrs[5] + cbrs[7] # (1c|A) + (1b|A) + (1a|A)
     tbm = tb_hamiltonian(cbr, [[0, 0], [1, 0], [0, 1]])
     @test tbm.N == 3

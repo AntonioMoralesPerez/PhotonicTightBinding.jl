@@ -4,8 +4,8 @@ using Crystalline
 # `m` and `brs` need only refer to *equal* irreps, not identical ones (cf. issue #10).
 @testset "`m` and `brs` need only refer to equal irreps" begin
     sgnum, D = 2, 3
-    brs = calc_bandreps(sgnum, Val(D))
-    brs′ = calc_bandreps(sgnum, Val(D)) # equal to `brs`, but a distinct object
+    brs = bandreps(sgnum, Val(D))
+    brs′ = bandreps(sgnum, Val(D)) # equal to `brs`, but a distinct object
     @test irreps(brs) == irreps(brs′)
     @test irreps(brs) !== irreps(brs′)
 

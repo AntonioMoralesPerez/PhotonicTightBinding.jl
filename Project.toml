@@ -21,12 +21,12 @@ SymmetricTightBinding = {rev = "main", url = "https://github.com/CrystallineOrg/
 SymmetryBases = {rev = "master", url = "https://github.com/thchr/SymmetryBases.jl"}
 
 [compat]
-Crystalline = "0.6.27"
+Crystalline = "0.7"
 LinearAlgebra = "1.11.0"
-MPBUtils = "0.2.2"
+MPBUtils = "0.3"
 Optim = "2"
-PhotonicBandConnectivity = "0.5"
+PhotonicBandConnectivity = "0.6"
 PythonCall = "0.9.24"
 Reexport = "1"
-SymmetricTightBinding = "0.1.4"
+SymmetricTightBinding = "0.2.0"
 julia = "1.12"

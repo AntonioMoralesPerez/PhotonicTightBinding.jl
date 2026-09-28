@@ -204,7 +204,7 @@ $$
 
 > [!NOTE]
 > We know this because it is tabulated and, in particular, we will obtain it by 
-> `NewBandRep.siteir`.
+> `BandRep.siteir`.
 
 Within the primitive unit cell, an orbital localized on each $𝗾_α$ can be defined as:
 

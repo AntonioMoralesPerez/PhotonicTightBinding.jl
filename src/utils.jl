@@ -5,7 +5,7 @@ using MPBUtils
 """
     obtain_symmetry_vectors(
         ms::Py, 
-        brs::Collection{NewBandRep{D}};
+        brs::Collection{BandRep{D, LGIrrep{D}, SiteIrrep{D}}};
         polarization = nothing
     )
     obtain_symmetry_vectors(
@@ -24,7 +24,7 @@ The symmetry content at Γ and ω=0 is automatically corrected.
 """
 function obtain_symmetry_vectors(
     ms::Py,
-    brs::Collection{NewBandRep{D}};
+    brs::Collection{BandRep{D, LGIrrep{D}, SiteIrrep{D}}};
     polarization::Union{Nothing, Symbol, Integer} = nothing,
 ) where {D}
     lgirsv = irreps(brs) # small irreps & little groups assoc. w/ `brs`
@@ -43,7 +43,7 @@ function obtain_symmetry_vectors(
     return ns, symeigsv
 end
 function obtain_symmetry_vectors(ms::Py, sgnum::Int, Dᵛ::Val{D} = Val(3); kws...) where {D}
-    brs = primitivize(calc_bandreps(sgnum, Dᵛ)) # elementary band representations
+    brs = primitivize(bandreps(sgnum, Dᵛ)) # elementary band representations
     return obtain_symmetry_vectors(ms, brs; kws...)
 end
 
@@ -65,14 +65,14 @@ function _check_and_canonicalize_2d_polarization_arg(polarization)
 end
 
 """
-    find_auxiliary_modes(μᴸ::Int, brs::Collection{<:NewBandRep}) -> Vector{Vector{Int}}
+    find_auxiliary_modes(μᴸ::Int, brs::Collection{<:BandRep}) -> Vector{Vector{Int}}
 
 Finds all sets of bands in the SG that have dimension equal to `μᴸ`.
 
 1. `μᴸ` -> dimension of the auxiliary modes to search
 2. `brs` -> collection of the BRs of the SG
 """
-function find_auxiliary_modes(μᴸ::Int, brs::Collection{<:NewBandRep})
+function find_auxiliary_modes(μᴸ::Int, brs::Collection{<:BandRep})
     iszero(μᴸ) && return [Int[]]
     μs_brs = occupation.(brs)
     long_cand = find_all_admissible_expansions(
@@ -183,9 +183,11 @@ function is_integer_p_check(
 end
 
 """
-    find_apolar_modes(m::AbstractSymmetryVector{D},
-                      idxsᴸs::Vector{Vector{Int}}, 
-                      brs::Collection{NewBandRep{D}}) -> Vector{TightBindingCandidateSet}
+    find_apolar_modes(
+        m::AbstractSymmetryVector{D},
+        idxsᴸs::Vector{Vector{Int}}, 
+        brs::Collection{BandRep{D, LGIrrep{D}, SiteIrrep{D}}}
+    ) -> Vector{TightBindingCandidateSet{D}}
 
 Obtains a possible PhotonicTightBinding model `nᵀ⁺ᴸ` for the auxiliary modes provided
 `idxsᴸs`.
@@ -197,7 +199,7 @@ are not used to regularize the symmetry content at zero frequency.
 function find_apolar_modes(
     m::AbstractSymmetryVector{D},
     idxsᴸs::Vector{Vector{Int64}},
-    brs::Collection{NewBandRep{D}},
+    brs::Collection{BandRep{D, LGIrrep{D}, SiteIrrep{D}}},
 ) where {D}
     μs_brs = occupation.(brs)
     idxs = eachindex(first(brs))
@@ -211,7 +213,7 @@ function find_apolar_modes(
 
     n_fixed, Q = physical_zero_frequency_gamma_irreps_O3(lgirs)
 
-    candidatesv = TightBindingCandidateSet[]
+    candidatesv = TightBindingCandidateSet{D}[]
     for idxsᴸ in idxsᴸs
         nᴸ = if isempty(idxsᴸ)
             zero(first(brs))
@@ -248,7 +250,7 @@ end
 
 """
     find_bandrep_decompositions(m::AbstractSymmetryVector{D},
-                                brs::Collection{NewBandRep{D}};
+                                brs::Collection{BandRep{D, LGIrrep{D}, SiteIrrep{D}}};
                                 μᴸ_min::Integer = 0,
                                 μᵀ_max::Integer = μᴸ_min + 2 * occupation(m),
                                 connected_to_zero_frequency::Bool = true,
@@ -262,7 +264,7 @@ made. This parameter is set by default to `true`.
 """
 function find_bandrep_decompositions(
     m::AbstractSymmetryVector{D},
-    brs::Collection{NewBandRep{D}};
+    brs::Collection{BandRep{D, LGIrrep{D}, SiteIrrep{D}}};
     μᴸ_min::Integer = 0,
     μᴸ_max::Integer = μᴸ_min + 2 * occupation(m),
     connected_to_zero_frequency::Bool = true,

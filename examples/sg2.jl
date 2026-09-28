@@ -6,7 +6,7 @@ using Crystalline
 using PhotonicTightBinding
 
 sgnum = 2
-brs = calc_bandreps(sgnum)
+brs = bandreps(sgnum)
 lgirsv = irreps(brs)
 
 # ---------------------------------------------------------------------------------------- #

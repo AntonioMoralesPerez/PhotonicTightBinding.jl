@@ -47,7 +47,7 @@ function inverse_opal_case()
     Rm = stack(primitivize(Rs′, centering(sgnum)))
     freqs = readcsv("mpb_inverse_opal_freqs.csv")
     kvs = [collect(kv) for kv in eachrow(readcsv("mpb_inverse_opal_kvs.csv"))]
-    cbrs = calc_bandreps(sgnum, Val(3))
+    cbrs = bandreps(sgnum, Val(3))
     cbr = @composite cbrs[12]
     _tbm = tb_hamiltonian(cbr, [[0,0,0], [2,1,0], [1,1,0], [1,0,0], [2,0,0], [1,1,1]])
     sort!(_tbm.terms, by = t -> norm(Rm * t.block.h_orbit.representative()))
@@ -58,7 +58,7 @@ end
 function sg221_case()
     freqs = readcsv("mpb_sg221_freqs.csv")
     kvs = [collect(kv) for kv in eachrow(readcsv("mpb_sg221_kvs.csv"))]
-    brs = primitivize(calc_bandreps(221, Val(3)))
+    brs = primitivize(bandreps(221, Val(3)))
     cbr = @composite brs[15]
     tbm = tb_hamiltonian(cbr, [[0,0,0], [1,0,0], [1,1,0], [1,1,1], [2,0,0]])
     return ("crossed cylinders (SG 221)", tbm, freqs[:, 1:2], kvs, tbm.N - 2)

@@ -1,5 +1,5 @@
 using PhotonicTightBinding, Test
-using Crystalline # for calc_bandreps
+using Crystalline # for bandreps
 
 @testset "EBR decomposition" begin
     @testset "SG #221" begin
@@ -48,7 +48,7 @@ using Crystalline # for calc_bandreps
         # obtain the symmetry vectors of the bands computed above; `brs` is shared with the
         # decomposition below, whose `n` must be built against this collection
         sgnum = 221
-        brs = primitivize(calc_bandreps(sgnum, Val(3)))
+        brs = primitivize(bandreps(sgnum, Val(3)))
         ns, topos = obtain_symmetry_vectors(ms, brs)
 
         for n in ns

@@ -63,7 +63,7 @@ end
 # obtain the symmetry vectors of the bands computed above
 ms.init_params(; p = mp.ALL, reset_fields = true)
 
-cbrs = calc_bandreps(sgnum, Val(3)) # conventional setting; to pass to `tb_hamiltonian`
+cbrs = bandreps(sgnum, Val(3)) # conventional setting; to pass to `tb_hamiltonian`
 brs = primitivize(cbrs)
 symvecs, symeigsv = obtain_symmetry_vectors(ms, brs);
 

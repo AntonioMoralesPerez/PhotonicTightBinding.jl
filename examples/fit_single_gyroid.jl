@@ -64,7 +64,7 @@ kvs_stored = eachrow(readdlm(joinpath(@__DIR__, "data", "mpb_single_gyroid_kvs.c
 # the two lowest bands carry the symmetry content [P₂, N₂+N₄, H₃, -Γ₁+Γ₄], for which
 # `find_bandrep_decompositions` offers (12c|B₁) = (8b|A₁) ⊕ nᵀ among others: a six-band model
 # with four longitudinal bands
-cbrs = calc_bandreps(sgnum, Val(3))
+cbrs = bandreps(sgnum, Val(3))
 cbr = @composite cbrs[6] # (12c|B₁)
 
 # hoppings out to five neighbour shells (33 terms), sorted by physical range — `tb_hamiltonian`
